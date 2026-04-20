@@ -1,0 +1,9 @@
+{
+  "start_node": "Cầu Thanh Trì",
+  "end_node": "Gia Lâm",
+  "soc_init": 16.0,
+  "allow_charging": true,
+  "priority": "balanced",
+  "vehicle": "VF 8",
+  "max_soc_pct": 92
+}

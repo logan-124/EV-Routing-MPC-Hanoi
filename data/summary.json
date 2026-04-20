@@ -1,0 +1,33 @@
+{
+  "start_name": "Cầu Thanh Trì, Hà Nội, Hà Nội, 11711",
+  "end_name": "Gia Lâm, Hà Nội",
+  "route": [
+    "Start",
+    "End"
+  ],
+  "total_dist_km": 9.09,
+  "total_time_min": 16.5,
+  "total_energy_kwh": 2.7921,
+  "efficiency_kwh100km": 30.717,
+  "vehicle": "VF 8",
+  "soc_max_kwh": 82.0,
+  "soc_init_kwh": 16.0,
+  "soc_final_kwh": 13.208,
+  "soc_final_pct": 16.1,
+  "soc_history": [
+    16.0,
+    13.2079
+  ],
+  "n_charging_stops": 0,
+  "charging_stops": [],
+  "total_charge_min": 0.0,
+  "segments": [
+    {
+      "from": "Start",
+      "to": "End",
+      "dist_km": 9.09,
+      "speed_kmh": 33,
+      "energy_kwh": 2.7921
+    }
+  ]
+}
