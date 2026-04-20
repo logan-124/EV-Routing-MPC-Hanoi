@@ -3,3 +3,4 @@ networkx
 folium
 matplotlib
 numpy
+requests
