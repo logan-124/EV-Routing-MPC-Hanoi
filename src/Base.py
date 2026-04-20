@@ -494,7 +494,7 @@ def is_path_feasible(graph, path, current_soc, margin=0.05):
 # ==========================================
 TOMTOM_API_KEY  = os.environ.get("TOMTOM_API_KEY", "zq2bWHggyKxHuXeJe14MFn2lQSjTMnyt")
 TOMTOM_BASE_URL = "https://api.tomtom.com"
-DISK_CACHE_FILE = "tomtom_cache.json"
+DISK_CACHE_FILE = "data/tomtom_cache.json"
 
 # ---- Disk cache — tồn tại qua các lần chạy ----
 def _load_disk_cache():
@@ -1178,7 +1178,7 @@ def export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec):
             'route': np.array(path_taken, dtype=object),
         }
     }
-    sio.savemat('DriveCycle_Data.mat', mat_data)
+    sio.savemat('results/DriveCycle_Data.mat', mat_data)
     print("[INFO] Đã xuất MATLAB file với thời gian sạc trạm mô phỏng thực tế!")
 
 def print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec):
@@ -1253,7 +1253,7 @@ def export_summary(path_taken, soc_history, visited_cs, G, start_info, end_info,
             for u, v in pairs
         ]
     }
-    with open("summary.json", "w", encoding="utf-8") as f:
+    with open("data/summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print("[INFO] Da xuat: summary.json")
 
@@ -1530,7 +1530,7 @@ def visualize(G, all_nodes, path_taken, visited_cs,
         <span style="color:#333"> {' → '.join(path_taken)}</span>
     </div>"""))
 
-    m.save('ev_routing_map.html')
+    m.save('results/ev_routing_map.html')
     print("[INFO] Da luu: ev_routing_map.html")
 
 
@@ -1547,7 +1547,7 @@ if __name__ == "__main__":
         exit(1)
 
     # ── Đọc params từ web_app nếu có, fallback sang input() ──
-    if os.path.exists("ui_params.json"):
+    if os.path.exists("data/ui_params.json"):
         with open("ui_params.json", encoding="utf-8") as f:
             p = json.load(f)
         start_input    = p.get("start_node", "").strip()
