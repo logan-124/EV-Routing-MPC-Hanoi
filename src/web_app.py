@@ -264,17 +264,17 @@ if run_btn:
             st.info(f"🔌 Lộ trình bao gồm **{summary['n_charging_stops']} lần dừng sạc**. "
                     f"Trạm sạc đã được thêm tự động vào file xuất Drive Cycle.")
 
-    # Bản đồ
+# Bản đồ
     st.markdown("#### Lộ trình tối ưu trên bản đồ")
-    if os.path.exists("ev_routing_map.html"):
-        with open("ev_routing_map.html", "r", encoding="utf-8") as f:
+    if os.path.exists("results/ev_routing_map.html"):
+        with open("results/ev_routing_map.html", "r", encoding="utf-8") as f:
             components.html(f.read(), height=680, scrolling=True)
     else:
         st.warning("Không tìm thấy file bản đồ.")
 
     # Biểu đồ SOC
-    if os.path.exists("ev_routing_result.png"):
-        st.image("ev_routing_result.png", use_container_width=True)
+    if os.path.exists("results/ev_routing_result.png"):
+        st.image("results/ev_routing_result.png", use_container_width=True)
 
     with st.expander("Console Log (Debug)"):
         st.code("\n".join(stdout_lines), language="text")
@@ -287,8 +287,8 @@ if run_btn:
     
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
-        if os.path.exists("DriveCycle_Data.mat"):
-            with open("DriveCycle_Data.mat", "rb") as f:
+        if os.path.exists("results/DriveCycle_Data.mat"):
+            with open("results/DriveCycle_Data.mat", "rb") as f:
                 st.download_button(
                     label="Lấy file Drive Cycle (MATLAB .mat)",
                     data=f,
@@ -298,8 +298,8 @@ if run_btn:
                     type="primary"
                 )
     with col_dl2:
-        if os.path.exists("summary.json"):
-            with open("summary.json", "rb") as f:
+        if os.path.exists("data/summary.json"):
+            with open("data/summary.json", "rb") as f:
                 st.download_button(
                     label="Lấy báo cáo tổng hợp (JSON)",
                     data=f,
