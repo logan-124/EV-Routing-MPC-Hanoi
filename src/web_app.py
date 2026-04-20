@@ -199,7 +199,7 @@ if run_btn:
 
     try:
         proc = subprocess.Popen(
-            ["python", "Base.py"],
+            ["python", "src/Base.py"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
