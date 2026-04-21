@@ -1401,7 +1401,7 @@ def visualize(G, all_nodes, path_taken, visited_cs,
     ax2.grid(True, alpha=0.25)
 
     plt.tight_layout(pad=2.0)
-    plt.savefig('ev_routing_result.png', dpi=150, bbox_inches='tight')
+    plt.savefig('results/ev_routing_result.png', dpi=150, bbox_inches='tight')
     print("[INFO] Da luu: ev_routing_result.png")
 
     # ---- HTML Folium ----
@@ -1548,7 +1548,7 @@ if __name__ == "__main__":
 
     # ── Đọc params từ web_app nếu có, fallback sang input() ──
     if os.path.exists("data/ui_params.json"):
-        with open("ui_params.json", encoding="utf-8") as f:
+        with open("data/ui_params.json", encoding="utf-8") as f:
             p = json.load(f)
         start_input    = p.get("start_node", "").strip()
         end_input      = p.get("end_node",   "").strip()
