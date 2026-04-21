@@ -54,17 +54,16 @@ st.markdown("""
 # HELPER
 # ==========================================
 def load_summary():
-    if os.path.exists("summary.json"):
+    if os.path.exists("data/summary.json"):
         try:
-            with open("summary.json", encoding="utf-8") as f:
+            with open("data/summary.json", encoding="utf-8") as f:
                 return json.load(f)
         except:
             pass
     return None
 
 def clear_old_outputs():
-    # Đã bỏ "ui_params.json" ra khỏi danh sách để không bị xóa nhầm
-    for f in ["summary.json", "progress.log", "ev_routing_map.html", "ev_routing_result.png", "DriveCycle_Data.mat"]:
+    for f in ["data/summary.json", "results/ev_routing_map.html", "results/ev_routing_result.png", "results/DriveCycle_Data.mat"]:
         if os.path.exists(f):
             try:
                 os.remove(f)
@@ -89,12 +88,11 @@ with st.sidebar:
     vehicle_choice = st.selectbox(
         "Dòng xe VinFast",
         options=list(VEHICLES.keys()),
-        index=1,   # Mặc định VF 8
+        index=1,   
     )
 
     selected = VEHICLES[vehicle_choice]
 
-    # Hiển thị ảnh xe
     col_img, col_info = st.columns([1, 2])
     with col_img:
         if os.path.exists(selected["image"]):
@@ -108,7 +106,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Thông tin hành trình
     start_point = st.text_input("📍 Điểm xuất phát", value="Bách Khoa Hà Nội")
     end_point   = st.text_input("🏁 Điểm đến", value="Sân bay Nội Bài")
 
@@ -126,7 +123,6 @@ with st.sidebar:
     st.markdown("### Tùy chọn tối ưu")
     allow_charging = st.checkbox("Cho phép dừng sạc dọc đường", value=True)
 
-    # Tùy chọn mức sạc tối đa tại trạm
     max_soc_pct = st.slider(
         "Mức sạc tối đa tại trạm (%)",
         min_value=75,
@@ -177,18 +173,18 @@ if run_btn:
         st.error("Điểm xuất phát và điểm đến không được trùng nhau.")
         st.stop()
 
-    # Lưu tham số truyền sang Base.py
     params = {
         "start_node":     start_point.strip(),
         "end_node":       end_point.strip(),
         "soc_init":       float(soc_init),
         "allow_charging": allow_charging,
         "priority":       priority_map[priority],
-        "vehicle":        vehicle_choice,          # Quan trọng: truyền tên xe
+        "vehicle":        vehicle_choice,          
         "max_soc_pct":    max_soc_pct
     }
 
-    with open("ui_params.json", "w", encoding="utf-8") as f:
+    os.makedirs('data', exist_ok=True)
+    with open("data/ui_params.json", "w", encoding="utf-8") as f:
         json.dump(params, f, ensure_ascii=False, indent=2)
 
     clear_old_outputs()
@@ -212,7 +208,6 @@ if run_btn:
             if line:
                 stdout_lines.append(line)
 
-            # Cập nhật progress
             if "[1/4]" in line:
                 progress_bar.progress(25, text="Xác định vị trí...")
             elif "[2/4]" in line:
@@ -239,32 +234,32 @@ if run_btn:
     progress_bar.progress(100, text="Hoàn tất")
     st.success("✅ Mô phỏng hoàn tất!")
 
-    # Hiển thị kết quả
-    summary = load_summary()
+# ==========================================
+# HIỂN THỊ KẾT QUẢ
+# ==========================================
+summary = load_summary()
 
-    if summary:
-        drive_time   = summary.get('total_time_min', 0)
-        charge_time  = summary.get('total_charge_min', 0)
-        total_time   = drive_time + charge_time
+if summary:
+    drive_time   = summary.get('total_time_min', 0)
+    charge_time  = summary.get('total_charge_min', 0)
+    total_time   = drive_time + charge_time
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Quãng đường", f"{summary.get('total_dist_km', 0):.1f} km")
-        with col2:
-            # Hiển thị tổng thời gian và note nhỏ thời gian sạc ở dưới
-            st.metric("Tổng thời gian (Lái + Sạc)", f"{total_time:.0f} phút", 
-                      delta=f"Sạc mất {charge_time:.0f} phút" if charge_time > 0 else "Không dừng sạc", 
-                      delta_color="off")
-        with col3:
-            st.metric("Tiêu hao năng lượng", f"{summary.get('total_energy_kwh', 0):.2f} kWh")
-        with col4:
-            st.metric("Hiệu suất", f"{summary.get('efficiency_kwh100km', 0):.2f} kWh/100km")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Quãng đường", f"{summary.get('total_dist_km', 0):.1f} km")
+    with col2:
+        st.metric("Tổng thời gian (Lái + Sạc)", f"{total_time:.0f} phút", 
+                  delta=f"Sạc mất {charge_time:.0f} phút" if charge_time > 0 else "Không dừng sạc", 
+                  delta_color="off")
+    with col3:
+        st.metric("Tiêu hao năng lượng", f"{summary.get('total_energy_kwh', 0):.2f} kWh")
+    with col4:
+        st.metric("Hiệu suất", f"{summary.get('efficiency_kwh100km', 0):.2f} kWh/100km")
 
-        if summary.get("n_charging_stops", 0) > 0:
-            st.info(f"🔌 Lộ trình bao gồm **{summary['n_charging_stops']} lần dừng sạc**. "
-                    f"Trạm sạc đã được thêm tự động vào file xuất Drive Cycle.")
+    if summary.get("n_charging_stops", 0) > 0:
+        st.info(f"🔌 Lộ trình bao gồm **{summary['n_charging_stops']} lần dừng sạc**. "
+                f"Trạm sạc đã được thêm tự động vào file xuất Drive Cycle.")
 
-# Bản đồ
     st.markdown("#### Lộ trình tối ưu trên bản đồ")
     if os.path.exists("results/ev_routing_map.html"):
         with open("results/ev_routing_map.html", "r", encoding="utf-8") as f:
@@ -272,12 +267,8 @@ if run_btn:
     else:
         st.warning("Không tìm thấy file bản đồ.")
 
-    # Biểu đồ SOC
     if os.path.exists("results/ev_routing_result.png"):
         st.image("results/ev_routing_result.png", use_container_width=True)
-
-    with st.expander("Console Log (Debug)"):
-        st.code("\n".join(stdout_lines), language="text")
 
     # ==========================================
     # DOWNLOAD DỮ LIỆU
