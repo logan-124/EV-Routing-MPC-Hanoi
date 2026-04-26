@@ -1,0 +1,9 @@
+{
+  "start_node": "Bách Khoa Hà Nội",
+  "end_node": "Sân bay Nội Bài",
+  "soc_init": 30.0,
+  "allow_charging": true,
+  "priority": "balanced",
+  "vehicle": "VF 8",
+  "max_soc_pct": 92
+}

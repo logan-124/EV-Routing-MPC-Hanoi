@@ -1,7 +1,7 @@
 {
-  "start_node": "Cầu Thanh Trì",
-  "end_node": "Gia Lâm",
-  "soc_init": 16.0,
+  "start_node": "Bách Khoa Hà Nội",
+  "end_node": "Sân bay Nội Bài",
+  "soc_init": 15.0,
   "allow_charging": true,
   "priority": "balanced",
   "vehicle": "VF 8",

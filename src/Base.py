@@ -12,6 +12,7 @@ _REQUIRED_PACKAGES = {
     "scipy":       "scipy",
     "matplotlib":  "matplotlib",
     "folium":      "folium",
+    "dotenv":      "python-dotenv",   # [NEW] đọc key/.env
 }
 
 def _install_package(pip_name: str):
@@ -490,9 +491,43 @@ def is_path_feasible(graph, path, current_soc, margin=0.05):
 
 # ==========================================
 # 2. TOMTOM API MODULE
-# Thay thế hoàn toàn ORS — có real-time traffic thật
+# Key được đọc từ key/.env — KHÔNG hardcode trong code
 # ==========================================
-TOMTOM_API_KEY  = os.environ.get("TOMTOM_API_KEY", "zq2bWHggyKxHuXeJe14MFn2lQSjTMnyt")
+
+# [NEW] Tự động tìm và load file key/.env
+# Tìm theo thứ tự: key/.env → .env → biến môi trường
+def _load_env_key() -> str:
+    """Đọc TOMTOM_API_KEY từ key/.env, fallback sang .env rồi os.environ."""
+    from dotenv import dotenv_values
+
+    # Thứ tự ưu tiên
+    _env_candidates = [
+        os.path.join(os.path.dirname(__file__), "..", "key", ".env"),  # key/.env (chuẩn)
+        os.path.join(os.path.dirname(__file__), "key", ".env"),         # src/key/.env
+        os.path.join(os.getcwd(), "key", ".env"),                       # cwd/key/.env
+        os.path.join(os.getcwd(), ".env"),                              # .env gốc
+    ]
+
+    for env_path in _env_candidates:
+        env_path = os.path.normpath(env_path)
+        if os.path.exists(env_path):
+            vals = dotenv_values(env_path)
+            key  = vals.get("TOMTOM_API_KEY", "").strip()
+            if key:
+                print(f"[KEY]  Da load API key tu: {env_path}")
+                return key
+
+    # Fallback: biến môi trường hệ thống
+    key = os.environ.get("TOMTOM_API_KEY", "").strip()
+    if key:
+        print("[KEY]  Da doc API key tu bien moi truong.")
+        return key
+
+    # Không tìm thấy
+    return "KHONG_CO_KEY"
+
+
+TOMTOM_API_KEY  = _load_env_key()
 TOMTOM_BASE_URL = "https://api.tomtom.com"
 DISK_CACHE_FILE = "data/tomtom_cache.json"
 
@@ -1401,7 +1436,7 @@ def visualize(G, all_nodes, path_taken, visited_cs,
     ax2.grid(True, alpha=0.25)
 
     plt.tight_layout(pad=2.0)
-    plt.savefig('ev_routing_result.png', dpi=150, bbox_inches='tight')
+    plt.savefig('results/ev_routing_result.png', dpi=150, bbox_inches='tight')
     print("[INFO] Da luu: ev_routing_result.png")
 
     # ---- HTML Folium ----
@@ -1542,13 +1577,16 @@ if __name__ == "__main__":
     print("  EV MPC Routing — TomTom API + Tram sac thuc te")
     print("=" * 62)
 
-    if TOMTOM_API_KEY == "NHAP_KEY_CUA_BAN_VAO_DAY":
-        print("\n[!!!] Chua co TomTom API Key!")
+    if TOMTOM_API_KEY in ("NHAP_KEY_CUA_BAN_VAO_DAY", "KHONG_CO_KEY", ""):
+        print("\n[!!!] Khong tim thay TomTom API Key!")
+        print("      Tao file key/.env voi noi dung:")
+        print("      TOMTOM_API_KEY=your_key_here")
+        print("      Hoac set bien moi truong: export TOMTOM_API_KEY='...'")
         exit(1)
 
     # ── Đọc params từ web_app nếu có, fallback sang input() ──
     if os.path.exists("data/ui_params.json"):
-        with open("ui_params.json", encoding="utf-8") as f:
+        with open("data/ui_params.json", encoding="utf-8") as f:
             p = json.load(f)
         start_input    = p.get("start_node", "").strip()
         end_input      = p.get("end_node",   "").strip()

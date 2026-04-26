@@ -1,22 +1,22 @@
 {
-  "start_name": "Cầu Thanh Trì, Hà Nội, Hà Nội, 11711",
-  "end_name": "Gia Lâm, Hà Nội",
+  "start_name": "Bách Khoa, Bạch Mai, Hà Nội",
+  "end_name": "Sân bay Quốc tế Nội Bài",
   "route": [
     "Start",
     "End"
   ],
-  "total_dist_km": 9.09,
-  "total_time_min": 16.5,
-  "total_energy_kwh": 2.7921,
-  "efficiency_kwh100km": 30.717,
+  "total_dist_km": 34.77,
+  "total_time_min": 36.6,
+  "total_energy_kwh": 6.6482,
+  "efficiency_kwh100km": 19.12,
   "vehicle": "VF 8",
   "soc_max_kwh": 82.0,
-  "soc_init_kwh": 16.0,
-  "soc_final_kwh": 13.208,
-  "soc_final_pct": 16.1,
+  "soc_init_kwh": 15.0,
+  "soc_final_kwh": 8.352,
+  "soc_final_pct": 10.2,
   "soc_history": [
-    16.0,
-    13.2079
+    15.0,
+    8.3518
   ],
   "n_charging_stops": 0,
   "charging_stops": [],
@@ -25,9 +25,9 @@
     {
       "from": "Start",
       "to": "End",
-      "dist_km": 9.09,
-      "speed_kmh": 33,
-      "energy_kwh": 2.7921
+      "dist_km": 34.77,
+      "speed_kmh": 57,
+      "energy_kwh": 6.6482
     }
   ]
 }
