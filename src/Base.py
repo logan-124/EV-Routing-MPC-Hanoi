@@ -568,7 +568,22 @@ def is_path_feasible(graph, path, current_soc, margin=0.05):
 # 2. TOMTOM API MODULE
 # Thay thế hoàn toàn ORS — có real-time traffic thật
 # ==========================================
-TOMTOM_API_KEY  = os.environ.get("TOMTOM_API_KEY", "zq2bWHggyKxHuXeJe14MFn2lQSjTMnyt")
+# 1. Chỉ lấy từ biến môi trường, không để giá trị mặc định là key thật
+TOMTOM_API_KEY = os.environ.get("TOMTOM_API_KEY")
+
+# 2. Nếu chạy local, thử load từ file .env
+if not TOMTOM_API_KEY:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv("key/.env")
+        TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
+    except ImportError:
+        pass
+
+# 3. Kiểm tra cuối cùng
+if not TOMTOM_API_KEY:
+    print("[LOI] Khong tim thay API Key! He thong se khong the goi du lieu giao thong.")
+    TOMTOM_API_KEY = "MISSING_KEY_CHECK_YOUR_ENV"
 TOMTOM_BASE_URL = "https://api.tomtom.com"
 DISK_CACHE_FILE = "data/tomtom_cache.json"
 
