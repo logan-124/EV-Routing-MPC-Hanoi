@@ -3,6 +3,7 @@
 # ==========================================
 import subprocess
 import sys
+import os
 
 _REQUIRED_PACKAGES = {
     "requests":    "requests",
@@ -12,22 +13,28 @@ _REQUIRED_PACKAGES = {
     "scipy":       "scipy",
     "matplotlib":  "matplotlib",
     "folium":      "folium",
+    "dotenv":      "python-dotenv",
 }
 
 def _install_package(pip_name: str):
     print(f"[SETUP] Dang cai dat '{pip_name}'...", flush=True)
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", pip_name, "--quiet"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
     print(f"[SETUP] Da cai xong '{pip_name}'!", flush=True)
 
+_need_restart = False
 for _import_name, _pip_name in _REQUIRED_PACKAGES.items():
     try:
         __import__(_import_name)
     except ImportError:
         _install_package(_pip_name)
+        _need_restart = True
+
+if _need_restart:
+    # Sau khi cài, restart lại chính process để Python load module mới
+    print("[SETUP] Khoi dong lai de load cac thu vien vua cai...", flush=True)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 import os
@@ -57,55 +64,32 @@ MAX_STEPS = 50
 # BẢNG THÔNG SỐ VẬT LÝ CÁC DÒNG XE VINFAST (Cập nhật 2026)
 # ==========================================
 VEHICLE_SPECS = {
-    # ══ Giải thích các hệ số hàm chi phí ══════════════════════════
-    # kappa_base : hệ số penalty stop-and-go cơ sở (xe nặng/lớn → cao hơn)
-    # kappa_slope: tốc độ tăng penalty khi tốc độ giảm xuống dưới 35km/h
-    # beta_base  : trọng số năng lượng β cơ sở trong hàm chi phí w = α·t + β·e
-    # beta_slope : β tăng thêm bao nhiêu trên mỗi % SOC dưới ngưỡng
-    # beta_thresh: ngưỡng SOC (% của SOC_MAX) bắt đầu kích hoạt β thích nghi
-    # charge_buf : buffer an toàn khi kiểm tra tính khả thi SOC (% SOC_MAX)
-    # ══════════════════════════════════════════════════════════════
-
     "VF 9": {
-        "soc_max": 92.0,
-        "mass_kg": 2630,
-        "Cd": 0.29,
-        "A": 2.85,
+        "soc_max": 92.0,      # Usable ~92 kWh (Eco/Standard), Plus lên 123 kWh nhưng dùng 92 làm mặc định thực tế
+        "mass_kg": 2630,      # Curb weight ~2911 kg (Plus) → lấy trung bình thực tế
+        "Cd": 0.29,           # Ước tính thực tế cho SUV lớn
+        "A": 2.85,            # Frontal area ước tính
         "Cr": 0.012,
         "eta": 0.90,
-        "eta_regen": 0.70,        # AWD dual motor → regen mạnh hơn
+        "eta_regen": 0.62,
         "P_aux_W": 2800,
-        "motor_kw": 300,
-        # Hàm chi phí: xe to nhất, nặng nhất → penalty cao nhất
-        "kappa_base":  2.10,
-        "kappa_slope": 0.045,
-        "beta_base":   14.0,      # SOC_MAX lớn → cần beta cao để giữ tỷ lệ
-        "beta_slope":  0.28,
-        "beta_thresh": 0.55,      # Kích hoạt khi SOC < 55% SOC_MAX
-        "charge_buf":  0.12,
+        "motor_kw": 300,      # Dual motor ~402 hp
     },
 
     "VF 8": {
-        "soc_max": 82.0,
-        "mass_kg": 2350,
+        "soc_max": 82.0,      # Phiên bản phổ biến nhất (Eco ~87.7 kWh gross → usable ~82)
+        "mass_kg": 2350,      # Curb weight thực tế ~2530 kg (EU)
         "Cd": 0.28,
         "A": 2.55,
         "Cr": 0.012,
         "eta": 0.905,
         "eta_regen": 0.65,
         "P_aux_W": 2500,
-        "motor_kw": 260,
-        # Hàm chi phí: xe chuẩn tham chiếu
-        "kappa_base":  1.85,
-        "kappa_slope": 0.035,
-        "beta_base":   12.0,
-        "beta_slope":  0.25,
-        "beta_thresh": 0.50,
-        "charge_buf":  0.10,
+        "motor_kw": 260,      # Eco ~260 kW, Plus 300 kW
     },
 
     "VF 7": {
-        "soc_max": 75.3,
+        "soc_max": 75.3,      # 75.3 kWh (thực tế phổ biến)
         "mass_kg": 1980,
         "Cd": 0.27,
         "A": 2.40,
@@ -113,14 +97,7 @@ VEHICLE_SPECS = {
         "eta": 0.91,
         "eta_regen": 0.64,
         "P_aux_W": 2300,
-        "motor_kw": 200,
-        # Hàm chi phí: nhẹ hơn VF8 một chút
-        "kappa_base":  1.75,
-        "kappa_slope": 0.030,
-        "beta_base":   11.0,
-        "beta_slope":  0.23,
-        "beta_thresh": 0.50,
-        "charge_buf":  0.10,
+        "motor_kw": 200,      # Eco ~150-201 hp, Plus ~349 hp
     },
 
     "VF 6": {
@@ -133,32 +110,18 @@ VEHICLE_SPECS = {
         "eta_regen": 0.63,
         "P_aux_W": 2100,
         "motor_kw": 150,
-        # Hàm chi phí: pin vừa, cân bằng tốt
-        "kappa_base":  1.65,
-        "kappa_slope": 0.028,
-        "beta_base":   10.0,
-        "beta_slope":  0.22,
-        "beta_thresh": 0.48,
-        "charge_buf":  0.10,
     },
 
     "VF MPV7": {
-        "soc_max": 60.13,
+        "soc_max": 60.13,     # Thông số chính thức gần đây
         "mass_kg": 2050,
-        "Cd": 0.31,
+        "Cd": 0.31,           # MPV nên Cd cao hơn
         "A": 2.95,
         "Cr": 0.013,
         "eta": 0.89,
         "eta_regen": 0.60,
-        "P_aux_W": 2800,
+        "P_aux_W": 2800,      # MPV có nhiều phụ tải hơn (điều hòa cabin lớn)
         "motor_kw": 150,
-        # Hàm chi phí: thân to, nhiều hành khách → penalty đô thị cao
-        "kappa_base":  2.00,
-        "kappa_slope": 0.040,
-        "beta_base":   12.0,
-        "beta_slope":  0.26,
-        "beta_thresh": 0.52,
-        "charge_buf":  0.12,
     },
 
     "VF 5": {
@@ -171,13 +134,6 @@ VEHICLE_SPECS = {
         "eta_regen": 0.62,
         "P_aux_W": 1800,
         "motor_kw": 100,
-        # Hàm chi phí: pin nhỏ → beta nhạy hơn để sạc đúng lúc
-        "kappa_base":  1.60,
-        "kappa_slope": 0.025,
-        "beta_base":   13.0,      # Beta cao: mỗi kWh với VF5 là quý
-        "beta_slope":  0.35,      # Tăng nhanh khi SOC xuống thấp
-        "beta_thresh": 0.45,      # Kích hoạt sớm hơn
-        "charge_buf":  0.08,
     },
 
     "VF 3": {
@@ -189,14 +145,7 @@ VEHICLE_SPECS = {
         "eta": 0.92,
         "eta_regen": 0.58,
         "P_aux_W": 1400,
-        "motor_kw": 60,
-        # Hàm chi phí: pin rất nhỏ → beta rất nhạy, kappa thấp nhất
-        "kappa_base":  1.45,      # Xe nhỏ nhất → quán tính ít nhất
-        "kappa_slope": 0.020,
-        "beta_base":   15.0,      # Beta cao nhất — 1 kWh mất là rất đáng kể
-        "beta_slope":  0.50,      # Tăng nhanh nhất
-        "beta_thresh": 0.40,      # Kích hoạt sớm nhất (40% = 7.4 kWh)
-        "charge_buf":  0.06,
+        "motor_kw": 60,       # Thực tế khoảng 42-60 kW
     },
 }
 # ==========================================
@@ -420,60 +369,65 @@ _traffic_cache    = {}
 # ==========================================
 def compute_energy(dist_km, speed_kmh, grade_percent=0, delay_sec=None, time_period="normal"):
     """
-    Tính năng lượng tiêu thụ (kWh) cho xe hiện tại.
-    Dùng kappa_base / kappa_slope riêng của từng dòng xe thay vì hardcode.
+    Tính năng lượng tiêu thụ thực tế hơn cho xe VinFast
+    - Tăng urban_penalty khi kẹt xe
+    - Tăng công suất phụ tải (điều hòa)
+    - Điều chỉnh theo khung giờ
     """
-    spec  = _vehicle_spec
+    spec = _vehicle_spec
     m     = spec["mass_kg"]
     Cd    = spec["Cd"]
     A     = spec["A"]
     Cr    = spec["Cr"]
     eta   = spec["eta"]
     regen = spec["eta_regen"]
-    P_aux = spec["P_aux_W"]
-    # [NEW] Hệ số stop-and-go riêng theo xe
-    kappa_base  = spec.get("kappa_base",  1.85)
-    kappa_slope = spec.get("kappa_slope", 0.035)
+    P_aux = spec["P_aux_W"]          # Công suất phụ tải
+    g     = 9.81
+    rho   = 1.2
 
-    g   = 9.81
-    rho = 1.2
-
-    dist_m    = dist_km * 1000
-    v_ms      = max(speed_kmh / 3.6, 0.1)
+    dist_m = dist_km * 1000
+    v_ms   = max(speed_kmh / 3.6, 0.1)
     total_sec = dist_m / v_ms
 
     # Tách thời gian dừng / kẹt xe
     if delay_sec is None:
+        # Tăng thời gian dừng khi tốc độ thấp
         stop_ratio = min(0.45, max(0.0, (35 - speed_kmh) / 35.0) * 0.45)
-        delay_sec  = total_sec * stop_ratio
+        delay_sec = total_sec * stop_ratio
 
     drive_sec = max(total_sec - delay_sec, 1.0)
-    v_cruise  = dist_m / drive_sec   # Tốc độ thực khi đang chạy
+    v_cruise = dist_m / drive_sec   # Tốc độ thực khi đang chạy
 
-    theta   = np.arctan(grade_percent / 100.0)
+    theta = np.arctan(grade_percent / 100.0)
+
     F_roll  = m * g * Cr * np.cos(theta)
     F_aero  = 0.5 * rho * Cd * A * (v_cruise ** 2)
     F_grade = m * g * np.sin(theta)
+
     F_total = F_roll + F_aero + F_grade
 
-    # [FIX] Urban penalty dùng thông số riêng của xe thay vì hardcode
+    # === TĂNG URBAN PENALTY KHI KẸT XE ===
     urban_penalty = 1.0
     if speed_kmh < 35:
-        urban_penalty = kappa_base + (35 - speed_kmh) * kappa_slope
+        urban_penalty = 1.85 + (35 - speed_kmh) * 0.035   # Tăng mạnh khi tắc đường
 
-    # Điều chỉnh theo khung giờ
+    # Điều chỉnh theo khung giờ (time_period)
     profile = TRAFFIC_PROFILES.get(time_period, TRAFFIC_PROFILES["normal"])
     urban_penalty *= profile["urban_penalty"]
 
     P_drive = F_total * v_cruise * urban_penalty
 
+    # Năng lượng cơ học
     if P_drive > 0:
         E_drive = (P_drive / eta) * drive_sec
     else:
         E_drive = (P_drive * regen) * drive_sec
 
+    # Năng lượng phụ tải (điều hòa, hệ thống...)
     E_aux = P_aux * total_sec
-    return (E_drive + E_aux) / 3.6e6
+
+    total_energy_j = E_drive + E_aux
+    return total_energy_j / 3.6e6   # chuyển sang kWh
 
 def update_edge_physics(graph, u, v, new_speed):
     graph[u][v]['speed']  = new_speed
@@ -487,56 +441,33 @@ def update_edge_physics(graph, u, v, new_speed):
 
 def update_weights(graph, current_soc, charging_stations=None, visited_cs=None, priority="balanced"):
     """
-    Cập nhật trọng số cạnh với beta thích nghi riêng theo từng dòng xe.
-
-    Thay vì hardcode ngưỡng kWh (chỉ đúng với VF8), hàm này:
-    - Normalize SOC theo SOC_MAX của xe hiện tại
-    - Dùng beta_base / beta_slope / beta_thresh từ VEHICLE_SPECS
-    → VF3 (18.6 kWh) và VF9 (92 kWh) sẽ có hành vi hoàn toàn khác nhau
+    Cập nhật trọng số cạnh. CẤM thuật toán đi qua trạm sạc nếu pin còn đầy.
     """
-    spec         = _vehicle_spec
-    beta_base    = spec.get("beta_base",   12.0)
-    beta_slope   = spec.get("beta_slope",  0.25)
-    beta_thresh  = spec.get("beta_thresh", 0.50)   # tỷ lệ SOC_MAX
-    charge_buf   = spec.get("charge_buf",  0.10)
+    soc_ratio = current_soc / SOC_MAX
 
-    # SOC normalize về [0, 1]
-    soc_ratio = current_soc / max(SOC_MAX, 1.0)
-
-    # Ngưỡng kích hoạt theo kWh thực tế của xe
-    thresh_kwh = beta_thresh * SOC_MAX
-
-    # [FIX] Beta thích nghi: tăng khi SOC xuống dưới ngưỡng đặc trưng của xe
-    # VF3: beta_thresh=0.40 → kích hoạt khi SOC < 7.4 kWh
-    # VF9: beta_thresh=0.55 → kích hoạt khi SOC < 50.6 kWh
-    if current_soc < thresh_kwh:
-        pct_below = (thresh_kwh - current_soc) / max(thresh_kwh, 1.0) * 100
-        beta_adaptive = beta_base + beta_slope * pct_below
-    else:
-        beta_adaptive = beta_base
-
-    # Alpha và beta_final theo priority
-    if priority == "time":
-        alpha      = 2.0
-        beta_final = beta_adaptive * 0.50   # ít quan tâm năng lượng hơn
-    elif priority == "energy":
-        alpha      = 0.5
-        beta_final = beta_adaptive * 2.00   # quan tâm năng lượng nhiều hơn
-    else:  # balanced
-        alpha      = 1.0
-        beta_final = beta_adaptive
+    if priority == "time":           
+        alpha, beta = 2.0, 6.0 + max(0, 15 - current_soc)
+    elif priority == "energy":       
+        alpha, beta = 0.5, 28.0 + max(0, 45 - current_soc)
+    else:                            
+        alpha, beta = 1.0, 12.0 + max(0, 25 - current_soc)
 
     for u, v, data in graph.edges(data=True):
-        base_weight = alpha * data['time'] + beta_final * data['energy']
+        base_weight = alpha * data['time'] + beta * data['energy']
 
         charger_penalty = 0.0
+        
+        # Lớp bảo vệ: Chỉ xét penalty nếu v là trạm sạc
         if charging_stations and (v in charging_stations):
             if visited_cs is not None and (v in visited_cs):
-                charger_penalty = 9999.0                # Đã sạc → cấm tuyệt đối
-            elif soc_ratio > (spec.get("beta_thresh", 0.50) + charge_buf):
-                charger_penalty = 5000.0                # Pin đủ → không ghé trạm
+                # Đã sạc ở đây rồi thì cấm quay lại tuyệt đối
+                charger_penalty = 9999.0 
+            elif current_soc > SOC_COMFORT:
+                # Pin còn dồi dào (>40%), PHẠT CỰC NẶNG để cấm đi mượn đường qua trạm
+                charger_penalty = 5000.0 
             else:
-                charger_penalty = 0.0                   # Pin thấp → mở đường vào sạc
+                # Pin thấp, mở đường cho thuật toán rẽ vào sạc
+                charger_penalty = 0.0
 
         data['weight'] = base_weight + charger_penalty
 
@@ -568,22 +499,7 @@ def is_path_feasible(graph, path, current_soc, margin=0.05):
 # 2. TOMTOM API MODULE
 # Thay thế hoàn toàn ORS — có real-time traffic thật
 # ==========================================
-# 1. Chỉ lấy từ biến môi trường, không để giá trị mặc định là key thật
-TOMTOM_API_KEY = os.environ.get("TOMTOM_API_KEY")
-
-# 2. Nếu chạy local, thử load từ file .env
-if not TOMTOM_API_KEY:
-    try:
-        from dotenv import load_dotenv
-        load_dotenv("key/.env")
-        TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
-    except ImportError:
-        pass
-
-# 3. Kiểm tra cuối cùng
-if not TOMTOM_API_KEY:
-    print("[LOI] Khong tim thay API Key! He thong se khong the goi du lieu giao thong.")
-    TOMTOM_API_KEY = "MISSING_KEY_CHECK_YOUR_ENV"
+TOMTOM_API_KEY  = os.environ.get("TOMTOM_API_KEY", "zq2bWHggyKxHuXeJe14MFn2lQSjTMnyt")
 TOMTOM_BASE_URL = "https://api.tomtom.com"
 DISK_CACHE_FILE = "data/tomtom_cache.json"
 
