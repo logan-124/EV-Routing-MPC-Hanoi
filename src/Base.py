@@ -1,3 +1,35 @@
+# ==========================================
+# TỰ ĐỘNG CÀI THƯ VIỆN (chạy lần đầu sẽ tự cài)
+# ==========================================
+import subprocess
+import sys
+
+_REQUIRED_PACKAGES = {
+    "requests":    "requests",
+    "polyline":    "polyline",
+    "networkx":    "networkx",
+    "numpy":       "numpy",
+    "scipy":       "scipy",
+    "matplotlib":  "matplotlib",
+    "folium":      "folium",
+}
+
+def _install_package(pip_name: str):
+    print(f"[SETUP] Dang cai dat '{pip_name}'...", flush=True)
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", pip_name, "--quiet"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    print(f"[SETUP] Da cai xong '{pip_name}'!", flush=True)
+
+for _import_name, _pip_name in _REQUIRED_PACKAGES.items():
+    try:
+        __import__(_import_name)
+    except ImportError:
+        _install_package(_pip_name)
+
+
 import os
 import json
 import time
