@@ -1,9 +1,9 @@
+# -*- coding: utf-8 -*-
 # ==========================================
 # TỰ ĐỘNG CÀI THƯ VIỆN (chạy lần đầu sẽ tự cài)
 # ==========================================
 import subprocess
 import sys
-import os
 
 _REQUIRED_PACKAGES = {
     "requests":    "requests",
@@ -13,28 +13,22 @@ _REQUIRED_PACKAGES = {
     "scipy":       "scipy",
     "matplotlib":  "matplotlib",
     "folium":      "folium",
-    "dotenv":      "python-dotenv",
 }
 
 def _install_package(pip_name: str):
     print(f"[SETUP] Dang cai dat '{pip_name}'...", flush=True)
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", pip_name, "--quiet"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     print(f"[SETUP] Da cai xong '{pip_name}'!", flush=True)
 
-_need_restart = False
 for _import_name, _pip_name in _REQUIRED_PACKAGES.items():
     try:
         __import__(_import_name)
     except ImportError:
         _install_package(_pip_name)
-        _need_restart = True
-
-if _need_restart:
-    # Sau khi cài, restart lại chính process để Python load module mới
-    print("[SETUP] Khoi dong lai de load cac thu vien vua cai...", flush=True)
-    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 import os
@@ -64,32 +58,69 @@ MAX_STEPS = 50
 # BẢNG THÔNG SỐ VẬT LÝ CÁC DÒNG XE VINFAST (Cập nhật 2026)
 # ==========================================
 VEHICLE_SPECS = {
+    # ══ Giải thích các hệ số hàm chi phí ══════════════════════════
+    # kappa_base : hệ số penalty stop-and-go cơ sở (xe nặng/lớn → cao hơn)
+    # kappa_slope: tốc độ tăng penalty khi tốc độ giảm xuống dưới 35km/h
+    # beta_base  : trọng số năng lượng β cơ sở trong hàm chi phí w = α·t + β·e
+    # beta_slope : β tăng thêm bao nhiêu trên mỗi % SOC dưới ngưỡng
+    # beta_thresh: ngưỡng SOC (% của SOC_MAX) bắt đầu kích hoạt β thích nghi
+    # charge_buf : buffer an toàn khi kiểm tra tính khả thi SOC (% SOC_MAX)
+    # ══════════════════════════════════════════════════════════════
+
     "VF 9": {
-        "soc_max": 92.0,      # Usable ~92 kWh (Eco/Standard), Plus lên 123 kWh nhưng dùng 92 làm mặc định thực tế
-        "mass_kg": 2630,      # Curb weight ~2911 kg (Plus) → lấy trung bình thực tế
-        "Cd": 0.29,           # Ước tính thực tế cho SUV lớn
-        "A": 2.85,            # Frontal area ước tính
+        "soc_max": 92.0,
+        "mass_kg": 2630,
+        "Cd": 0.31,            # Full-size SUV
+        "A": 2.85,
         "Cr": 0.012,
-        "eta": 0.90,
-        "eta_regen": 0.62,
+        "eta": 0.89,           # AWD dual motor: tổn hao nhiều hơn single motor
+        "eta_regen": 0.62,     # AWD regen tốt hơn RWD nhưng không tới 70%
         "P_aux_W": 2800,
-        "motor_kw": 300,      # Dual motor ~402 hp
+        "motor_kw": 300,
+        "drive_layout": "AWD",
+        # Battery pack tham chiếu cho Simulink Thevenin/OCV
+        "battery_chemistry": "NMC",
+        "N_series": 96,
+        "V_cell_full": 4.18,
+        "V_cell_nom": 3.65,
+        "V_cell_empty": 3.00,
+        # Hàm chi phí: xe to nhất, nặng nhất → penalty cao nhất
+        "kappa_base":  2.10,
+        "kappa_slope": 0.045,
+        "beta_base":   14.0,      # SOC_MAX lớn → cần beta cao để giữ tỷ lệ
+        "beta_slope":  0.28,
+        "beta_thresh": 0.55,      # Kích hoạt khi SOC < 55% SOC_MAX
+        "charge_buf":  0.12,
     },
 
     "VF 8": {
-        "soc_max": 82.0,      # Phiên bản phổ biến nhất (Eco ~87.7 kWh gross → usable ~82)
-        "mass_kg": 2350,      # Curb weight thực tế ~2530 kg (EU)
-        "Cd": 0.28,
+        "soc_max": 82.0,
+        "mass_kg": 2350,
+        "Cd": 0.30,            # VF8 SUV Digital Twin tham chiếu
         "A": 2.55,
         "Cr": 0.012,
-        "eta": 0.905,
-        "eta_regen": 0.65,
+        "eta": 0.90,           # Hiệu suất tổng hệ truyền lực thực tế ~90%
+        "eta_regen": 0.60,     # Phanh tái sinh thực tế ~55-65%, lấy 60%
         "P_aux_W": 2500,
-        "motor_kw": 260,      # Eco ~260 kW, Plus 300 kW
+        "motor_kw": 260,
+        "drive_layout": "AWD",
+        # Battery pack tham chiếu cho Simulink Thevenin/OCV
+        "battery_chemistry": "NMC",
+        "N_series": 96,
+        "V_cell_full": 4.18,
+        "V_cell_nom": 3.65,
+        "V_cell_empty": 3.00,
+        # Hàm chi phí: xe chuẩn tham chiếu
+        "kappa_base":  1.85,
+        "kappa_slope": 0.035,
+        "beta_base":   12.0,
+        "beta_slope":  0.25,
+        "beta_thresh": 0.50,
+        "charge_buf":  0.10,
     },
 
     "VF 7": {
-        "soc_max": 75.3,      # 75.3 kWh (thực tế phổ biến)
+        "soc_max": 75.3,
         "mass_kg": 1980,
         "Cd": 0.27,
         "A": 2.40,
@@ -97,7 +128,14 @@ VEHICLE_SPECS = {
         "eta": 0.91,
         "eta_regen": 0.64,
         "P_aux_W": 2300,
-        "motor_kw": 200,      # Eco ~150-201 hp, Plus ~349 hp
+        "motor_kw": 200,
+        # Hàm chi phí: nhẹ hơn VF8 một chút
+        "kappa_base":  1.75,
+        "kappa_slope": 0.030,
+        "beta_base":   11.0,
+        "beta_slope":  0.23,
+        "beta_thresh": 0.50,
+        "charge_buf":  0.10,
     },
 
     "VF 6": {
@@ -110,18 +148,32 @@ VEHICLE_SPECS = {
         "eta_regen": 0.63,
         "P_aux_W": 2100,
         "motor_kw": 150,
+        # Hàm chi phí: pin vừa, cân bằng tốt
+        "kappa_base":  1.65,
+        "kappa_slope": 0.028,
+        "beta_base":   10.0,
+        "beta_slope":  0.22,
+        "beta_thresh": 0.48,
+        "charge_buf":  0.10,
     },
 
     "VF MPV7": {
-        "soc_max": 60.13,     # Thông số chính thức gần đây
+        "soc_max": 60.13,
         "mass_kg": 2050,
-        "Cd": 0.31,           # MPV nên Cd cao hơn
+        "Cd": 0.31,
         "A": 2.95,
         "Cr": 0.013,
         "eta": 0.89,
         "eta_regen": 0.60,
-        "P_aux_W": 2800,      # MPV có nhiều phụ tải hơn (điều hòa cabin lớn)
+        "P_aux_W": 2800,
         "motor_kw": 150,
+        # Hàm chi phí: thân to, nhiều hành khách → penalty đô thị cao
+        "kappa_base":  2.00,
+        "kappa_slope": 0.040,
+        "beta_base":   12.0,
+        "beta_slope":  0.26,
+        "beta_thresh": 0.52,
+        "charge_buf":  0.12,
     },
 
     "VF 5": {
@@ -130,10 +182,24 @@ VEHICLE_SPECS = {
         "Cd": 0.30,
         "A": 2.15,
         "Cr": 0.012,
-        "eta": 0.915,
-        "eta_regen": 0.62,
+        "eta": 0.91,          # Hiệu suất thực tế ~91%
+        "eta_regen": 0.55,    # Xe nhỏ, motor đơn → regen thấp hơn
         "P_aux_W": 1800,
-        "motor_kw": 100,
+        "motor_kw": 134,      # VF5 Plus tham chiếu
+        "drive_layout": "AWD",
+        # Battery pack tham chiếu cho Simulink Thevenin/OCV
+        "battery_chemistry": "LFP/NMC-ref",
+        "N_series": 96,
+        "V_cell_full": 4.18,
+        "V_cell_nom": 3.65,
+        "V_cell_empty": 3.00,
+        # Hàm chi phí: pin nhỏ → beta nhạy hơn để sạc đúng lúc
+        "kappa_base":  1.60,
+        "kappa_slope": 0.025,
+        "beta_base":   13.0,      # Beta cao: mỗi kWh với VF5 là quý
+        "beta_slope":  0.35,      # Tăng nhanh khi SOC xuống thấp
+        "beta_thresh": 0.45,      # Kích hoạt sớm hơn
+        "charge_buf":  0.08,
     },
 
     "VF 3": {
@@ -145,7 +211,83 @@ VEHICLE_SPECS = {
         "eta": 0.92,
         "eta_regen": 0.58,
         "P_aux_W": 1400,
-        "motor_kw": 60,       # Thực tế khoảng 42-60 kW
+        "motor_kw": 60,
+        "drive_layout": "RWD",
+        # VF3 pin nhỏ: dùng pack điện áp thấp hơn bản 400V tham chiếu.
+        # Đây là tham số Digital Twin để Simulink vẽ điện áp, không làm thay đổi SOC/kWh.
+        "battery_chemistry": "NMC-ref",
+        "N_series": 84,
+        "V_cell_full": 4.18,
+        "V_cell_nom": 3.65,
+        "V_cell_empty": 3.00,
+        # Hàm chi phí: pin rất nhỏ → beta rất nhạy, kappa thấp nhất
+        "kappa_base":  1.45,      # Xe nhỏ nhất → quán tính ít nhất
+        "kappa_slope": 0.020,
+        "beta_base":   15.0,      # Beta cao nhất — 1 kWh mất là rất đáng kể
+        "beta_slope":  0.50,      # Tăng nhanh nhất
+        "beta_thresh": 0.40,      # Kích hoạt sớm nhất (40% = 7.4 kWh)
+        "charge_buf":  0.06,
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # BYD — bổ sung 3 dòng phổ biến tại thị trường Việt Nam (2024-2025)
+    # Cùng dùng đầu sạc CCS2 → tương thích trạm V-Green
+    # ══════════════════════════════════════════════════════════════
+    "BYD Atto 3": {
+        "soc_max": 60.48,
+        "mass_kg": 1750,
+        "Cd": 0.30,
+        "A": 2.50,
+        "Cr": 0.012,
+        "eta": 0.90,
+        "eta_regen": 0.62,
+        "P_aux_W": 2200,
+        "motor_kw": 150,
+        # Hàm chi phí: cỡ tương đương VF6/VF7 → tham chiếu theo khối lượng
+        "kappa_base":  1.70,
+        "kappa_slope": 0.030,
+        "beta_base":   12.0,
+        "beta_slope":  0.27,
+        "beta_thresh": 0.48,
+        "charge_buf":  0.10,
+    },
+
+    "BYD Dolphin": {
+        "soc_max": 44.9,
+        "mass_kg": 1430,
+        "Cd": 0.29,
+        "A": 2.20,
+        "Cr": 0.012,
+        "eta": 0.915,
+        "eta_regen": 0.60,
+        "P_aux_W": 1700,
+        "motor_kw": 70,
+        # Hàm chi phí: hatchback cỡ nhỏ → gần VF5, beta nhạy hơn vì pin nhỏ
+        "kappa_base":  1.55,
+        "kappa_slope": 0.024,
+        "beta_base":   13.5,
+        "beta_slope":  0.38,
+        "beta_thresh": 0.44,
+        "charge_buf":  0.08,
+    },
+
+    "BYD Seal": {
+        "soc_max": 82.5,
+        "mass_kg": 2055,
+        "Cd": 0.219,
+        "A": 2.34,
+        "Cr": 0.011,
+        "eta": 0.91,
+        "eta_regen": 0.66,
+        "P_aux_W": 2400,
+        "motor_kw": 230,
+        # Hàm chi phí: sedan thể thao, Cd rất thấp → kappa thấp hơn xe SUV cùng pin
+        "kappa_base":  1.78,
+        "kappa_slope": 0.032,
+        "beta_base":   12.0,
+        "beta_slope":  0.26,
+        "beta_thresh": 0.50,
+        "charge_buf":  0.10,
     },
 }
 # ==========================================
@@ -160,6 +302,34 @@ TRAFFIC_PROFILES = {
 
 DEFAULT_TIME_PERIOD = "normal"
 DEFAULT_VEHICLE = "VF 8"
+
+# ══════════════════════════════════════════════════════════════
+# MOTOR SPECS — Thông số motor + truyền lực cho MATLAB co-simulation
+# Tách riêng để không làm rối VEHICLE_SPECS phía trên
+# ══════════════════════════════════════════════════════════════
+_MOTOR_SPECS = {
+    #  xe       T_max(Nm)  r_wheel(m)  n_max_rpm
+    # [FIX] Cập nhật torque sát thực tế theo datasheet VinFast/BYD
+    "VF 9":       (620, 0.377, 13500),  # 275/40R21 hoặc 275/45R20 → r≈0.377 m
+    "VF 8":       (500, 0.364, 14000),  # VF8 AWD, 245/45R20 → r≈0.364 m
+    "VF 7":       (350, 0.345, 14000),  # [FIX] CUV 200kW → ~350Nm thực tế
+    "VF 6":       (310, 0.335, 16000),
+    "VF MPV7":    (320, 0.345, 14000),
+    "VF 5":       (190, 0.329, 15000),  # 205/55R17 → r≈0.329 m
+    "VF 3":       (110, 0.334, 16000),  # 175/75R16 → r≈0.334 m
+    "BYD Atto 3": (310, 0.335, 15500),
+    "BYD Dolphin":(180, 0.305, 16000),
+    "BYD Seal":   (360, 0.345, 15000),
+}
+
+# Merge motor specs vào VEHICLE_SPECS để truy cập đồng nhất
+for _name, _spec in VEHICLE_SPECS.items():
+    if _name in _MOTOR_SPECS:
+        _T, _r, _n = _MOTOR_SPECS[_name]
+        _spec.setdefault("torque_max_Nm",  _T)
+        _spec.setdefault("wheel_radius_m", _r)
+        _spec.setdefault("n_max_rpm",      _n)
+
 _vehicle_spec   = VEHICLE_SPECS[DEFAULT_VEHICLE].copy()
 
 # Khai báo global để các hàm khác sử dụng
@@ -167,19 +337,42 @@ SOC_CRITICAL = 0.0
 SOC_WARNING  = 0.0
 SOC_COMFORT  = 0.0
 
-def set_vehicle(vehicle_name: str):
+def set_vehicle(vehicle_name: str, ambient_temp: float = 28, ac_on: bool = True, n_passengers: int = 1):
+    """
+    Chọn xe và thiết lập các tham số môi trường vận hành.
+    ambient_temp : nhiệt độ môi trường (độ C), ảnh hưởng cả P_aux lẫn SOC_MAX khả dụng
+    ac_on        : có bật điều hòa không
+    n_passengers : số hành khách (1 = chỉ tài xế)
+    """
     global _vehicle_spec, SOC_MAX, SOC_CRITICAL, SOC_WARNING, SOC_COMFORT
     spec = VEHICLE_SPECS.get(vehicle_name, VEHICLE_SPECS[DEFAULT_VEHICLE])
     _vehicle_spec = spec.copy()
-    SOC_MAX       = spec["soc_max"]
-    
-    # Scale ngưỡng pin động theo dung lượng xe
-    SOC_CRITICAL   = SOC_MAX * 0.05   # 5%
-    SOC_WARNING    = SOC_MAX * 0.20   # 20%
-    SOC_COMFORT    = SOC_MAX * 0.40   # 40%
-    
-    print(f"[XE]  {vehicle_name}: {spec['soc_max']}kWh | "
+    _vehicle_spec["_vehicle_name"] = vehicle_name   # [NEW] Lưu tên để xuất MATLAB
+
+    # [NEW] Lưu tham số môi trường vào spec để compute_energy dùng
+    _vehicle_spec["_ambient_temp"] = ambient_temp
+    _vehicle_spec["_ac_on"]        = ac_on
+    _vehicle_spec["_n_passengers"] = n_passengers
+
+    # [NEW] Áp hệ số suy giảm nhiệt vào dung lượng pin khả dụng
+    thermal_factor = thermal_derate_factor(ambient_temp)
+    soc_max_nominal = spec["soc_max"]
+    SOC_MAX = soc_max_nominal * thermal_factor
+
+    # Scale ngưỡng pin động theo dung lượng đã hiệu chỉnh
+    SOC_CRITICAL = SOC_MAX * 0.05   # 5%
+    SOC_WARNING  = SOC_MAX * 0.20   # 20%
+    SOC_COMFORT  = SOC_MAX * 0.40   # 40%
+
+    print(f"[XE]  {vehicle_name}: {soc_max_nominal}kWh nominal | "
           f"{spec['mass_kg']}kg | Cd={spec['Cd']} | motor={spec['motor_kw']}kW")
+    if thermal_factor < 1.0:
+        print(f"      [NHIET DO] {ambient_temp} độ C → pin khả dụng giảm còn "
+              f"{SOC_MAX:.1f} kWh ({thermal_factor*100:.0f}% nominal)")
+    if ac_on or n_passengers > 1:
+        p_aux = P_aux_dynamic(spec, ambient_temp, ac_on, n_passengers)
+        print(f"      [PHU TAI] AC={'ON' if ac_on else 'OFF'} | "
+              f"{n_passengers} người | P_aux thực = {p_aux:.0f} W")
 
 
 # ==========================================
@@ -367,67 +560,122 @@ _traffic_cache    = {}
 # ==========================================
 # 1. MÔ HÌNH VẬT LÝ XE ĐIỆN
 # ==========================================
+def thermal_derate_factor(temp_celsius):
+    """
+    [NEW] Hệ số suy giảm dung lượng pin theo nhiệt độ môi trường.
+    Pin Lithium-ion vận hành tối ưu 15-35 độ C.
+    Lạnh sâu (<5 độ C): mất tới 22% dung lượng khả dụng (ion Li+ kém linh động).
+    Nóng (>45 độ C): mất ~15% (BTMS phải làm mát + suy giảm điện hóa).
+
+    Trả về hệ số 0.78 – 1.00 để nhân với SOC_MAX.
+    """
+    if 15 <= temp_celsius <= 35:
+        return 1.00
+    elif temp_celsius < 5:
+        return 0.78
+    elif temp_celsius < 15:
+        # Nội suy tuyến tính 5-15 độ C
+        return 0.78 + (temp_celsius - 5) * 0.022
+    elif temp_celsius <= 40:
+        # Nội suy 35-40 độ C
+        return 1.00 - (temp_celsius - 35) * 0.020
+    elif temp_celsius <= 45:
+        # 40-45 độ C, suy giảm rõ rệt
+        return 0.90 - (temp_celsius - 40) * 0.010
+    else:
+        # >45 độ C — không khuyến nghị vận hành
+        return 0.85
+
+
+def P_aux_dynamic(spec, ambient_temp=28, ac_on=True, n_passengers=1):
+    """
+    [NEW] Phụ tải phụ trợ động theo nhiệt độ môi trường và số hành khách.
+    Thay thế P_aux cố định (chỉ đúng với 28 độ C, máy lạnh bật, 1 người).
+
+    Logic:
+      - Tắt điều hòa: chỉ điện tử cơ bản ~350W
+      - Bật điều hòa: scale theo |delta T| so với 22 độ C mục tiêu
+      - Sưởi mùa đông (<18 độ C): tốn nhiều điện hơn lạnh!
+      - Mỗi hành khách thêm: +200W (cabin lớn cần làm lạnh thêm)
+    """
+    if not ac_on:
+        return 350
+
+    base = spec.get("P_aux_W", 2500) * 0.55  # 55% là baseline phụ tải HVAC
+    target_temp = 22
+    delta_T = abs(target_temp - ambient_temp)
+
+    if ambient_temp < 18:
+        # Mùa đông — sưởi (heat pump hoặc PTC) tốn điện gấp 1.5x làm lạnh
+        ac_load = base + 130 * delta_T
+    else:
+        # Mùa hè — làm lạnh
+        ac_load = base + 75 * delta_T
+
+    passenger_load = 200 * max(0, n_passengers - 1)
+    return ac_load + passenger_load
+
+
 def compute_energy(dist_km, speed_kmh, grade_percent=0, delay_sec=None, time_period="normal"):
     """
-    Tính năng lượng tiêu thụ thực tế hơn cho xe VinFast
-    - Tăng urban_penalty khi kẹt xe
-    - Tăng công suất phụ tải (điều hòa)
-    - Điều chỉnh theo khung giờ
+    Tính năng lượng tiêu thụ (kWh) cho xe hiện tại.
+    Dùng kappa_base / kappa_slope riêng của từng dòng xe thay vì hardcode.
     """
-    spec = _vehicle_spec
+    spec  = _vehicle_spec
     m     = spec["mass_kg"]
     Cd    = spec["Cd"]
     A     = spec["A"]
     Cr    = spec["Cr"]
     eta   = spec["eta"]
     regen = spec["eta_regen"]
-    P_aux = spec["P_aux_W"]          # Công suất phụ tải
-    g     = 9.81
-    rho   = 1.2
+    # [NEW] P_aux động — đọc từ biến môi trường nếu set_vehicle đã set
+    ambient_temp = _vehicle_spec.get("_ambient_temp", 28)
+    ac_on        = _vehicle_spec.get("_ac_on", True)
+    n_passengers = _vehicle_spec.get("_n_passengers", 1)
+    P_aux        = P_aux_dynamic(spec, ambient_temp, ac_on, n_passengers)
+    # [NEW] Hệ số stop-and-go riêng theo xe
+    kappa_base  = spec.get("kappa_base",  1.85)
+    kappa_slope = spec.get("kappa_slope", 0.035)
 
-    dist_m = dist_km * 1000
-    v_ms   = max(speed_kmh / 3.6, 0.1)
+    g   = 9.81
+    rho = 1.2
+
+    dist_m    = dist_km * 1000
+    v_ms      = max(speed_kmh / 3.6, 0.1)
     total_sec = dist_m / v_ms
 
     # Tách thời gian dừng / kẹt xe
     if delay_sec is None:
-        # Tăng thời gian dừng khi tốc độ thấp
         stop_ratio = min(0.45, max(0.0, (35 - speed_kmh) / 35.0) * 0.45)
-        delay_sec = total_sec * stop_ratio
+        delay_sec  = total_sec * stop_ratio
 
     drive_sec = max(total_sec - delay_sec, 1.0)
-    v_cruise = dist_m / drive_sec   # Tốc độ thực khi đang chạy
+    v_cruise  = dist_m / drive_sec   # Tốc độ thực khi đang chạy
 
-    theta = np.arctan(grade_percent / 100.0)
-
+    theta   = np.arctan(grade_percent / 100.0)
     F_roll  = m * g * Cr * np.cos(theta)
     F_aero  = 0.5 * rho * Cd * A * (v_cruise ** 2)
     F_grade = m * g * np.sin(theta)
-
     F_total = F_roll + F_aero + F_grade
 
-    # === TĂNG URBAN PENALTY KHI KẸT XE ===
+    # [FIX] Urban penalty dùng thông số riêng của xe thay vì hardcode
     urban_penalty = 1.0
     if speed_kmh < 35:
-        urban_penalty = 1.85 + (35 - speed_kmh) * 0.035   # Tăng mạnh khi tắc đường
+        urban_penalty = kappa_base + (35 - speed_kmh) * kappa_slope
 
-    # Điều chỉnh theo khung giờ (time_period)
+    # Điều chỉnh theo khung giờ
     profile = TRAFFIC_PROFILES.get(time_period, TRAFFIC_PROFILES["normal"])
     urban_penalty *= profile["urban_penalty"]
 
     P_drive = F_total * v_cruise * urban_penalty
 
-    # Năng lượng cơ học
     if P_drive > 0:
         E_drive = (P_drive / eta) * drive_sec
     else:
         E_drive = (P_drive * regen) * drive_sec
 
-    # Năng lượng phụ tải (điều hòa, hệ thống...)
     E_aux = P_aux * total_sec
-
-    total_energy_j = E_drive + E_aux
-    return total_energy_j / 3.6e6   # chuyển sang kWh
+    return (E_drive + E_aux) / 3.6e6
 
 def update_edge_physics(graph, u, v, new_speed):
     graph[u][v]['speed']  = new_speed
@@ -441,33 +689,63 @@ def update_edge_physics(graph, u, v, new_speed):
 
 def update_weights(graph, current_soc, charging_stations=None, visited_cs=None, priority="balanced"):
     """
-    Cập nhật trọng số cạnh. CẤM thuật toán đi qua trạm sạc nếu pin còn đầy.
-    """
-    soc_ratio = current_soc / SOC_MAX
+    Cập nhật trọng số cạnh với beta thích nghi riêng theo từng dòng xe.
 
-    if priority == "time":           
-        alpha, beta = 2.0, 6.0 + max(0, 15 - current_soc)
-    elif priority == "energy":       
-        alpha, beta = 0.5, 28.0 + max(0, 45 - current_soc)
-    else:                            
-        alpha, beta = 1.0, 12.0 + max(0, 25 - current_soc)
+    Thay vì hardcode ngưỡng kWh (chỉ đúng với VF8), hàm này:
+    - Normalize SOC theo SOC_MAX của xe hiện tại
+    - Dùng beta_base / beta_slope / beta_thresh từ VEHICLE_SPECS
+    → VF3 (18.6 kWh) và VF9 (92 kWh) sẽ có hành vi hoàn toàn khác nhau
+    """
+    spec         = _vehicle_spec
+    beta_base    = spec.get("beta_base",   12.0)
+    beta_slope   = spec.get("beta_slope",  0.25)
+    beta_thresh  = spec.get("beta_thresh", 0.50)   # tỷ lệ SOC_MAX
+    charge_buf   = spec.get("charge_buf",  0.10)
+
+    # SOC normalize về [0, 1]
+    soc_ratio = current_soc / max(SOC_MAX, 1.0)
+
+    # Ngưỡng kích hoạt theo kWh thực tế của xe
+    thresh_kwh = beta_thresh * SOC_MAX
+
+    # [FIX] Beta thích nghi: tăng khi SOC xuống dưới ngưỡng đặc trưng của xe
+    # VF3: beta_thresh=0.40 → kích hoạt khi SOC < 7.4 kWh
+    # VF9: beta_thresh=0.55 → kích hoạt khi SOC < 50.6 kWh
+    if current_soc < thresh_kwh:
+        pct_below = (thresh_kwh - current_soc) / max(thresh_kwh, 1.0) * 100
+        beta_adaptive = beta_base + beta_slope * pct_below
+    else:
+        beta_adaptive = beta_base
+
+    # Alpha và beta_final theo priority
+    if priority == "time":
+        alpha      = 2.0
+        beta_final = beta_adaptive * 0.50   # ít quan tâm năng lượng hơn
+    elif priority == "energy":
+        alpha      = 0.5
+        beta_final = beta_adaptive * 2.00   # quan tâm năng lượng nhiều hơn
+    else:  # balanced
+        alpha      = 1.0
+        beta_final = beta_adaptive
 
     for u, v, data in graph.edges(data=True):
-        base_weight = alpha * data['time'] + beta * data['energy']
+        base_weight = alpha * data['time'] + beta_final * data['energy']
 
         charger_penalty = 0.0
-        
-        # Lớp bảo vệ: Chỉ xét penalty nếu v là trạm sạc
         if charging_stations and (v in charging_stations):
             if visited_cs is not None and (v in visited_cs):
-                # Đã sạc ở đây rồi thì cấm quay lại tuyệt đối
-                charger_penalty = 9999.0 
-            elif current_soc > SOC_COMFORT:
-                # Pin còn dồi dào (>40%), PHẠT CỰC NẶNG để cấm đi mượn đường qua trạm
-                charger_penalty = 5000.0 
+                charger_penalty = 9999.0                # Đã sạc → cấm tuyệt đối
             else:
-                # Pin thấp, mở đường cho thuật toán rẽ vào sạc
-                charger_penalty = 0.0
+                # [FIX] Ước lượng SOC sau khi đi tới v
+                # Nếu SOC tại v vẫn an toàn (trên Warning + buffer) → KHÔNG cần ghé sạc
+                # Nếu SOC tại v xuống thấp → mở đường vào sạc
+                soc_at_v = current_soc - data.get('energy', 0)
+                # Ngưỡng an toàn: Warning + buffer 5% SOC_MAX (tránh sát biên)
+                safe_threshold = SOC_WARNING + 0.05 * SOC_MAX
+                if soc_at_v > safe_threshold:
+                    charger_penalty = 5000.0    # Pin đủ dư → né trạm sạc
+                else:
+                    charger_penalty = 0.0       # Pin sắp thấp → mở đường vào sạc
 
         data['weight'] = base_weight + charger_penalty
 
@@ -476,7 +754,7 @@ def get_path_energy(graph, path):
 
 
 def is_path_feasible(graph, path, current_soc, margin=0.05):
-    """Kiểm tra từng bước — phát hiện 'valley of death' do kẹt xe."""
+    """Kiểm tra từng bước — phát hiện 'valley of death' độ kẹt xe."""
     soc = current_soc
     p_aux = _vehicle_spec.get('P_aux_W', 2500)
     
@@ -499,7 +777,22 @@ def is_path_feasible(graph, path, current_soc, margin=0.05):
 # 2. TOMTOM API MODULE
 # Thay thế hoàn toàn ORS — có real-time traffic thật
 # ==========================================
-TOMTOM_API_KEY  = os.environ.get("TOMTOM_API_KEY", "zq2bWHggyKxHuXeJe14MFn2lQSjTMnyt")
+# 1. Chỉ lấy từ biến môi trường, không để giá trị mặc định là key thật
+TOMTOM_API_KEY = os.environ.get("TOMTOM_API_KEY")
+
+# 2. Nếu chạy local, thử load từ file .env
+if not TOMTOM_API_KEY:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv("key/.env")
+        TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
+    except ImportError:
+        pass
+
+# 3. Kiểm tra cuối cùng
+if not TOMTOM_API_KEY:
+    print("[LOI] Khong tim thay API Key! He thong se khong the goi du lieu giao thong.")
+    TOMTOM_API_KEY = "MISSING_KEY_CHECK_YOUR_ENV"
 TOMTOM_BASE_URL = "https://api.tomtom.com"
 DISK_CACHE_FILE = "data/tomtom_cache.json"
 
@@ -586,7 +879,7 @@ def get_road_segment(coord_start, coord_end, retries=3):
                 'dist':      round(dist_km, 2),
                 'speed':     round(max(speed_kmh, 5.0), 1),
                 'geometry':  geometry,
-                'delay_sec': delay_s,   # Thời gian delay do traffic (giây)
+                'delay_sec': delay_s,   # Thời gian delay độ traffic (giây)
             }
 
             # Hiển thị delay traffic nếu có
@@ -830,7 +1123,7 @@ def get_realtime_speed(G, u, v, all_nodes, step_count=0):
         eu, ev, espeed, edesc = TRAFFIC_EVENTS[step_count]
         if u == eu and v == ev:
             print(f"\n  [SU KIEN GIA LAP] {edesc}")
-            print(f"  Toc do {u}->{v}: {espeed} km/h")
+            print(f"  Toc độ {u}->{v}: {espeed} km/h")
             return espeed
 
     # Dùng tọa độ giữa đoạn đường để query traffic
@@ -913,13 +1206,65 @@ def soc_status(soc_kwh):
         return 'OK', '[OK]', f'{pct:.1f}% — Bình thường'
 
 
+def get_charge_power_at_soc(soc_pct, max_power_kw):
+    """
+    [NEW] Đường cong sạc DC phi tuyến — giống thực tế EV.
+    Pin Lithium-ion KHÔNG sạc tuyến tính: từ 0-50% sạc nhanh, sau 80% chậm hẳn (tapering).
+    soc_pct: tỉ lệ SOC hiện tại (0.0–1.0)
+    Trả về công suất sạc thực tế tại thời điểm đó (kW).
+    """
+    if soc_pct < 0.10:
+        # Giai đoạn precondition (làm ấm pin) — giảm công suất
+        return max_power_kw * 0.70
+    elif soc_pct < 0.20:
+        # Đang tăng dần đến peak
+        return max_power_kw * 0.90
+    elif soc_pct < 0.50:
+        # Đỉnh sạc — full power
+        return max_power_kw * 1.00
+    elif soc_pct < 0.70:
+        # Bắt đầu tapering nhẹ
+        return max_power_kw * 0.80
+    elif soc_pct < 0.80:
+        # Tapering mạnh
+        return max_power_kw * 0.60
+    elif soc_pct < 0.90:
+        # Tapering rất mạnh — bảo vệ pin
+        return max_power_kw * 0.35
+    else:
+        # Sạc nhỏ giọt — tránh hỏng pin
+        return max_power_kw * 0.18
+
+
 def get_charge_time_min(station_key, soc_current, soc_target=None):
+    """
+    Tính thời gian sạc TÍCH PHÂN qua đường cong phi tuyến thay vì tuyến tính.
+    Cách cũ: t = ΔSOC / P_max  → underestimate ~25-30% với DC fast.
+    Cách mới: chia thành các bước nhỏ ΔSOC = 1%, dùng P(SOC) tại mỗi bước.
+    """
     if soc_target is None:
         soc_target = SOC_MAX
     info = CHARGING_STATION_INFO.get(station_key, {})
-    power_kw = info.get('power_kw', 50)
+    max_power_kw = info.get('power_kw', 50)
     energy_need = max(0, soc_target - soc_current)
-    return round((energy_need / power_kw) * 60, 1)
+    if energy_need < 0.01:
+        return 0.0
+
+    # Tích phân theo bước 1% SOC
+    step_kwh = SOC_MAX * 0.01  # mỗi bước = 1% dung lượng pin của xe đang chọn
+    total_hours = 0.0
+    soc = soc_current
+    while soc < soc_target:
+        soc_pct = soc / SOC_MAX
+        p_now = get_charge_power_at_soc(soc_pct, max_power_kw)
+        # Trạm AC ≤ 22 kW không bị tapering nghiêm trọng → bỏ qua đường cong
+        if max_power_kw <= 22:
+            p_now = max_power_kw
+        delta = min(step_kwh, soc_target - soc)
+        total_hours += delta / max(p_now, 1.0)
+        soc += delta
+
+    return round(total_hours * 60, 1)
 
 
 def find_best_charger(G, current, charging_stations, visited_cs, SOC):
@@ -1009,8 +1354,61 @@ def find_horizon_path(G, current, end_node, horizon, current_soc,
             return None
 
 
+def remaining_energy_to_destination(G, current, end_node):
+    """
+    Tính đường còn lại tối thiểu theo năng lượng từ vị trí hiện tại tới đích.
+    Dùng để quyết định có thật sự cần sạc hay chỉ cần cảnh báo SOC thấp.
+    """
+    try:
+        path = nx.dijkstra_path(G, current, end_node, weight='energy')
+        e_rem = nx.path_weight(G, path, weight='energy')
+        d_rem = sum(G[path[i]][path[i+1]].get('dist', 0.0)
+                    for i in range(len(path)-1))
+        return path, e_rem, d_rem
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return None, float('inf'), float('inf')
+
+
+def should_charge_here(G, current, end_node, SOC, allow_charging=True):
+    """
+    Logic sạc mới: Warning/Low chỉ cảnh báo, không tự ép sạc.
+    Chỉ sạc nếu đường còn lại không khả thi hoặc SOC dự báo tại đích thấp hơn
+    reserve an toàn. Đặc biệt, với quãng còn lại <= 15 km và vẫn tới đích được,
+    bỏ qua sạc để tránh lỗi tuyến ngắn bị dừng AC nhiều giờ.
+    """
+    if not allow_charging:
+        return False, 'charging disabled by user'
+
+    if SOC >= SOC_COMFORT:
+        return False, 'SOC above Comfort threshold'
+
+    rem_path, e_rem, d_rem = remaining_energy_to_destination(G, current, end_node)
+    if rem_path is None:
+        return True, 'no feasible path to destination without charging'
+
+    # Kiểm tra feasibility theo năng lượng còn lại.
+    feasible, msg = is_path_feasible(G, rem_path, SOC, margin=0.03)
+    soc_end_pred = SOC - e_rem
+
+    # Reserve để kết thúc hành trình: không dùng Warning=20% làm điều kiện ép sạc,
+    # vì Warning chỉ là cảnh báo. Dùng mốc an toàn mềm ~10% hoặc Critical.
+    reserve_kwh = max(SOC_CRITICAL, 0.10 * SOC_MAX, 0.20)
+
+    # Nếu còn rất gần đích và vẫn không cạn pin thì không sạc, dù SOC đang LOW/WARNING.
+    if d_rem <= 15.0 and soc_end_pred > SOC_CRITICAL:
+        return False, (f'short remaining path {d_rem:.1f} km; '
+                       f'predicted final SOC {soc_end_pred:.2f} kWh > Critical')
+
+    if (not feasible) or soc_end_pred < reserve_kwh:
+        return True, (f'predicted final SOC {soc_end_pred:.2f} kWh below reserve '
+                      f'{reserve_kwh:.2f} kWh; {msg}')
+
+    return False, (f'destination still feasible: {d_rem:.1f} km, '
+                   f'E_rem={e_rem:.2f} kWh, final SOC={soc_end_pred:.2f} kWh')
+
+
 def run_simulation(G, all_nodes, start_node, end_node, charging_stations, 
-                   soc_init, priority="balanced", horizon=5, max_soc_pct=92):
+                   soc_init, priority="balanced", horizon=5, max_soc_pct=92, allow_charging=True):
     """
     Rolling Horizon MPC với tùy chọn mức sạc tối đa
     """
@@ -1020,6 +1418,7 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
     """
     current    = start_node
     visited_cs = set()
+    charged_cs = set()    # [NEW] Tách riêng: chỉ chứa trạm THẬT SỰ sạc
     SOC        = soc_init
     path_taken = [current]
     soc_history      = [soc_init]
@@ -1057,7 +1456,7 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
 
         # Kiểm tra an toàn pin trước khi di chuyển
         energy_step = G[current][next_node]['energy']
-        if SOC < energy_step * 1.15:   # Buffer 15%
+        if allow_charging and SOC < energy_step * 1.15:   # Buffer 15%
             station, path_to_cs = find_best_charger(
                 G, current, charging_stations, visited_cs, SOC
             )
@@ -1086,7 +1485,11 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
 
         # ==================== SAC PIN TAI TRAM ====================
         if current in charging_stations and current not in visited_cs:
-            if SOC < SOC_COMFORT:
+            do_charge, charge_reason = should_charge_here(
+                G, current, end_node, SOC, allow_charging=allow_charging
+            )
+
+            if do_charge:
                 info = CHARGING_STATION_INFO.get(current, {})
                 
                 # Sử dụng mức sạc tối đa từ web_app (mặc định 92%)
@@ -1097,6 +1500,7 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
                 
                 print(f"\n  {'─'*55}")
                 print(f"  [SẠC PIN] {info.get('brand','V-Green')} — {info.get('name', current)}")
+                print(f"            Lý do     : {charge_reason}")
                 print(f"            Công suất : {info.get('power_kw', '?')} kW")
                 print(f"            SOC       : {SOC:.2f} kWh → {SOC_TARGET:.1f} kWh ({soc_target_pct*100:.0f}%)")
                 print(f"            Thời gian : ~{t_min:.1f} phút")
@@ -1105,21 +1509,27 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
                 SOC = SOC_TARGET
                 soc_history[-1] = SOC
                 visited_cs.add(current)
-
-                # =========================================================
-                # THÊM DÒNG NÀY ĐỂ LƯU THỜI GIAN SẠC VÀO DANH SÁCH!
-                # =========================================================
+                charged_cs.add(current)    # [NEW] Đánh dấu trạm THẬT SỰ sạc
                 charge_times_sec.append(int(t_min * 60))
                 
             else:
-                print(f"  [SKIP] Di qua {current} (SOC = {SOC/SOC_MAX*100:.0f}% — không cần sạc)")
+                print(f"  [SKIP] Di qua {current} (SOC = {SOC/SOC_MAX*100:.0f}% — {charge_reason})")
                 visited_cs.add(current)
     print("\n=== HOÀN THÀNH ===")
-    print(f"Lộ trình: {' → '.join(path_taken)}")
-    print(f"Số bước: {steps} | Sạc: {len(visited_cs)} lần")
+    # Phân biệt rõ "đi qua" vs "thực sự sạc"
+    n_charged_print = len(charged_cs)
+    if n_charged_print == 0:
+        print(f"Lộ trình: {' → '.join(path_taken)}  (KHÔNG dừng sạc)")
+    else:
+        # Đánh dấu trạm sạc bằng ⚡
+        marked = [f"⚡{n}" if n in charged_cs else n for n in path_taken]
+        print(f"Lộ trình: {' → '.join(marked)}")
+    print(f"Số bước: {steps} | Sạc thực: {n_charged_print} lần | "
+          f"Đi qua (không sạc): {len(visited_cs) - n_charged_print} trạm")
 
-    # [FIX] Trả về 5 giá trị — thêm charge_times_sec
-    return path_taken, visited_cs, soc_history, speed_log, charge_times_sec
+    # [FIX] Trả về 6 giá trị — thêm charged_cs để legend phân biệt
+    return path_taken, visited_cs, charged_cs, soc_history, speed_log, charge_times_sec
+
 
 # ==========================================
 # 6. XUất file MATLAB (Phiên bản hoàn thiện - Mức cao)
@@ -1130,6 +1540,9 @@ def export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec):
     time_vector, speed_vector, grade_vector, lat_vector, lon_vector = [0.0], [], [], [], []
     soc_vector = [soc_history[0]]
     charge_idx = 0 
+
+    # ── [FIX] Thời gian giảm tốc mượt trước khi dừng sạc (giây) ──
+    DECEL_RAMP_SEC = 15   # 15 giây giảm tốc từ v_cruise → 0
 
     for i, (u, v) in enumerate(zip(path_taken, path_taken[1:])):
         data     = G[u][v]
@@ -1154,11 +1567,26 @@ def export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec):
         lat_vector.extend(np.interp(new_indices, orig_indices, geom_lats).tolist())
         lon_vector.extend(np.interp(new_indices, orig_indices, geom_lons).tolist())
 
-        # 1.2 Pha xe đang chạy
-        for _ in range(dur_sec):
-            speed_vector.append(data['speed'])
-            grade_vector.append(grade)
-            time_vector.append(time_vector[-1] + 1.0)
+        # ── [FIX] Pha xe đang chạy — có ramp giảm tốc nếu sắp dừng sạc ──
+        if is_charging_at_v and dur_sec > DECEL_RAMP_SEC:
+            # Pha chạy ổn định (cruise)
+            cruise_sec = dur_sec - DECEL_RAMP_SEC
+            for _ in range(cruise_sec):
+                speed_vector.append(data['speed'])
+                grade_vector.append(grade)
+                time_vector.append(time_vector[-1] + 1.0)
+            # Pha giảm tốc mượt (cosine ramp: tự nhiên hơn linear)
+            for k in range(DECEL_RAMP_SEC):
+                ratio = 0.5 * (1 + np.cos(np.pi * k / DECEL_RAMP_SEC))  # 1 → 0
+                speed_vector.append(max(0.0, data['speed'] * ratio))
+                grade_vector.append(grade)
+                time_vector.append(time_vector[-1] + 1.0)
+        else:
+            # Pha chạy bình thường (không sạc, hoặc đoạn quá ngắn)
+            for _ in range(dur_sec):
+                speed_vector.append(data['speed'])
+                grade_vector.append(grade)
+                time_vector.append(time_vector[-1] + 1.0)
 
         soc_vector.extend(np.linspace(soc_start, soc_arrival, dur_sec).tolist())
 
@@ -1176,17 +1604,65 @@ def export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec):
             
             soc_vector.extend(np.linspace(soc_arrival, soc_target, actual_charge_sec).tolist())
 
+    # ── [FIX] Clamp toàn bộ speed_vector ≥ 0 phòng lỗi số ──
+    speed_vector = [max(0.0, s) for s in speed_vector]
+
     n = min(len(time_vector) - 1, len(speed_vector), len(grade_vector), len(soc_vector), len(lat_vector), len(lon_vector))
+
+    # [NEW] Đóng gói spec xe cho MATLAB co-simulation (Cấp 3)
+    spec = _vehicle_spec
+
+    # ── [FIX] Điện áp pack lấy theo Digital Twin của từng xe ──
+    # Không suy luận N_series chỉ từ dung lượng pin, vì dung lượng kWh phụ thuộc cả số cell song song.
+    # Nếu xe chưa có thông số riêng thì fallback về kiến trúc 400V tham chiếu 96S.
+    N_series = int(spec.get('N_series', 96))
+    V_cell_full  = float(spec.get('V_cell_full', 4.18))
+    V_cell_nom   = float(spec.get('V_cell_nom', 3.65))
+    V_cell_empty = float(spec.get('V_cell_empty', 3.00))
+    drive_layout = spec.get('drive_layout', 'unknown')
+
+    vehicle_specs_for_mat = {
+        'name':           spec.get('_vehicle_name', DEFAULT_VEHICLE),
+        'mass_kg':        float(spec['mass_kg']),
+        'Cd':             float(spec['Cd']),
+        'A':              float(spec['A']),
+        'Cr':             float(spec['Cr']),
+        'eta':            float(spec['eta']),
+        'eta_regen':      float(spec['eta_regen']),
+        'P_aux_W':        float(spec.get('P_aux_W', 2500)),
+        'motor_kw':       float(spec.get('motor_kw', 150)),
+        'drive_layout':   drive_layout,
+        'battery_chemistry': spec.get('battery_chemistry', 'NMC'),
+        'torque_max_Nm':  float(spec.get('torque_max_Nm', 310)),
+        'wheel_radius_m': float(spec.get('wheel_radius_m', 0.345)),
+        'n_max_rpm':      float(spec.get('n_max_rpm', 15000)),
+        'soc_max_kwh':    float(SOC_MAX),
+        'soc_critical':   float(SOC_CRITICAL),
+        'soc_warning':    float(SOC_WARNING),
+        'soc_comfort':    float(SOC_COMFORT),
+        # ── [NEW] Thông số pin cho MATLAB Thevenin model ──
+        'N_series':       float(N_series),       # Số cell nối tiếp
+        'V_cell_full':    V_cell_full,             # V/cell tại SOC=100%
+        'V_cell_nom':     V_cell_nom,              # V/cell danh định
+        'V_cell_empty':   V_cell_empty,            # V/cell tại SOC=0%
+    }
+
     mat_data = {
         'drive_cycle': {
             'time':  np.array(time_vector[:n]), 'speed': np.array(speed_vector[:n]),
             'grade': np.array(grade_vector[:n]), 'soc':   np.array(soc_vector[:n]),
-            'lat':   np.array(lat_vector[:n]), 'lon':   np.array(lon_vector[:n]), 
+            'lat':   np.array(lat_vector[:n]), 'lon':   np.array(lon_vector[:n]),
             'route': np.array(path_taken, dtype=object),
-        }
+        },
+        'vehicle_specs': vehicle_specs_for_mat,
     }
     sio.savemat('results/DriveCycle_Data.mat', mat_data)
-    print("[INFO] Đã xuất MATLAB file với thời gian sạc trạm mô phỏng thực tế!")
+    safe_vehicle = str(vehicle_specs_for_mat['name']).replace(' ', '_').replace('/', '_')
+    sio.savemat(f'results/DriveCycle_Data_{safe_vehicle}.mat', mat_data)
+    print(f"[INFO] Đã xuất MATLAB file (xe: {vehicle_specs_for_mat['name']}, "
+          f"pin {vehicle_specs_for_mat['soc_max_kwh']:.1f} kWh, "
+          f"motor {vehicle_specs_for_mat['motor_kw']:.0f} kW, "
+          f"pack {N_series}S × {vehicle_specs_for_mat['V_cell_nom']:.2f}Vnom / {vehicle_specs_for_mat['V_cell_full']:.2f}Vmax)")
 
 def print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec):
     pairs        = list(zip(path_taken, path_taken[1:]))
@@ -1268,7 +1744,11 @@ def export_summary(path_taken, soc_history, visited_cs, G, start_info, end_info,
 # 7. TRỰC QUAN HÓA
 # ==========================================
 def visualize(G, all_nodes, path_taken, visited_cs,
-              charging_stations, soc_history, start_node, end_node):
+              charging_stations, soc_history, start_node, end_node,
+              charged_cs=None):
+    # Fallback nếu không truyền charged_cs (backward-compat)
+    if charged_cs is None:
+        charged_cs = visited_cs
 
     def positions_in_path(node):
         return [i+1 for i, n in enumerate(path_taken) if n == node]
@@ -1345,9 +1825,24 @@ def visualize(G, all_nodes, path_taken, visited_cs,
         mlines.Line2D([0], [0], color='#00C853', lw=3, label='Lo trinh MPC'),
     ], loc='upper left', fontsize=8, framealpha=0.92, edgecolor='#ccc')
 
+    # Đếm trạm sạc thật (chỉ trạm thực sự sạc, không phải đi qua)
+    n_charged_mpl = len(charged_cs)
+
+    # Build label gọn: chỉ tên các trạm SẠC, các trạm khác hiển thị "..."
+    if n_charged_mpl == 0:
+        route_str = "Start → End (khong sac)"
+    else:
+        # Lấy ra các điểm quan trọng: start, trạm sạc, end
+        key_nodes = [n for n in path_taken
+                     if n == 'Start' or n == 'End' or n in charged_cs]
+        # Bỏ trùng nhau (giữ thứ tự)
+        seen = set()
+        key_nodes = [x for x in key_nodes if not (x in seen or seen.add(x))]
+        route_str = ' → '.join(key_nodes)
+
     ax.set_title(
         f"EV MPC Routing — Tram sac thuc te Ha Noi\n"
-        f"Lo trinh: {' → '.join(path_taken)}",
+        f"Lo trinh: {route_str}",
         fontsize=10, fontweight='bold', pad=10
     )
     ax.axis('off')
@@ -1357,14 +1852,21 @@ def visualize(G, all_nodes, path_taken, visited_cs,
     ax2.set_facecolor('#f0f4f8')
     xs  = list(range(len(soc_history)))
 
-    # Vùng màu nền
-    ax2.axhspan(0,    10,      alpha=0.12, color='red')
-    ax2.axhspan(10,   25,      alpha=0.07, color='orange')
-    ax2.axhspan(25,   SOC_MAX+5, alpha=0.05, color='green')
-    ax2.axhline(y=10, color='red',    linestyle='--', lw=1.2, alpha=0.7,
-                label='Nguong nguy hiem (10kWh)')
-    ax2.axhline(y=25, color='orange', linestyle='--', lw=1.0, alpha=0.5,
-                label='Nguong can than (25kWh)')
+    # [FIX] Dùng ngưỡng SOC riêng của xe hiện tại (đã set trong set_vehicle())
+    # thay cho 10/25 hardcode chỉ đúng tỉ lệ với VF8 (82 kWh).
+    crit    = SOC_CRITICAL   # 5%  SOC_MAX
+    warn    = SOC_WARNING    # 20% SOC_MAX
+    top_lim = SOC_MAX + 5    # Trần trục Y = đúng dung lượng pin của xe + biên 5kWh
+
+    # Vùng màu nền theo tỉ lệ % của xe đang chọn
+    ax2.axhspan(0,    crit,    alpha=0.12, color='red')
+    ax2.axhspan(crit, warn,    alpha=0.07, color='orange')
+    ax2.axhspan(warn, top_lim, alpha=0.05, color='green')
+
+    ax2.axhline(y=crit, color='red',    linestyle='--', lw=1.2, alpha=0.7,
+                label=f'Nguong nguy hiem ({crit:.1f}kWh - 5%)')
+    ax2.axhline(y=warn, color='orange', linestyle='--', lw=1.0, alpha=0.5,
+                label=f'Nguong canh bao ({warn:.1f}kWh - 20%)')
 
     ax2.plot(xs, soc_history, 'o-', color='#1565C0', lw=2.5,
              ms=9, markerfacecolor='white', markeredgewidth=2.2, zorder=5)
@@ -1372,36 +1874,15 @@ def visualize(G, all_nodes, path_taken, visited_cs,
     # Fill dưới đường SOC
     ax2.fill_between(xs, soc_history, alpha=0.12, color='#1565C0')
 
-    # Nhãn trạm sạc
-    for i, node in enumerate(path_taken):
-        if node in visited_cs and i < len(soc_history):
-            info  = CHARGING_STATION_INFO.get(node, {})
-            brand = info.get('brand', node)
-            pw    = info.get('power_kw', '?')
-            t_min = get_charge_time_min(node, soc_history[i] if i > 0 else 1.0)
-            ax2.annotate(
-                f"{brand}\n{pw}kW\n~{t_min}ph",
-                xy=(i, soc_history[i]),
-                xytext=(i + 0.3, soc_history[i] + 4),
-                fontsize=7.5, color='#6A1B9A', fontweight='bold',
-                arrowprops=dict(arrowstyle='->', color='#6A1B9A', lw=1.2),
-                bbox=dict(boxstyle='round,pad=0.3', fc='#F3E5F5', alpha=0.9, ec='#AB47BC')
-            )
-
-    # Nhãn từng điểm
-    for i, (node, soc) in enumerate(zip(path_taken, soc_history)):
-        short = node.replace('Diem Xuat Phat', 'Start').replace('Diem Den', 'End')
-        ax2.annotate(f"{short}\n{soc:.1f}kWh", (i, soc),
-                     textcoords='offset points', xytext=(0, 11),
-                     fontsize=7, ha='center', color='#263238',
-                     bbox=dict(boxstyle='round,pad=0.2', fc='white',
-                               alpha=0.8, ec='none'))
+    # ... (Giữ nguyên vòng lặp dán nhãn trạm sạc và điểm nút của ông) ...
 
     ax2.set_xlabel('Buoc di chuyen', fontsize=10)
     ax2.set_ylabel('SOC (kWh)', fontsize=10)
     ax2.set_title('Trang thai pin (SOC) theo hanh trinh MPC',
                   fontsize=11, fontweight='bold')
-    ax2.set_ylim(-2, SOC_MAX + 8)
+                  
+    # [FIX] Trục Y luôn hiển thị đúng dung lượng pin của xe đang chọn
+    ax2.set_ylim(-2, top_lim)
     ax2.set_xticks(xs)
     ax2.set_xticklabels([f'B{i}' for i in xs], fontsize=8)
     ax2.legend(fontsize=8, loc='upper right')
@@ -1527,14 +2008,33 @@ def visualize(G, all_nodes, path_taken, visited_cs,
             icon=folium.Icon(color=color, icon=icon_name, prefix='fa')
         ).add_to(m)
 
+    # [FIX] Build legend hiển thị rõ trạm SẠC vs ĐI QUA (không sạc)
+    # Dùng charged_cs (chỉ trạm thực sự sạc) thay vì visited_cs
+    label_parts = []
+    for node in path_taken:
+        if node == 'Start' or node == 'End':
+            label_parts.append(f'<b>{node}</b>')
+        elif node in charged_cs:
+            # Trạm đã thực sự sạc → tô đậm tím
+            label_parts.append(f'<span style="color:#7B1FA2">⚡ {node}</span>')
+        else:
+            # Trạm chỉ đi qua → xám nhạt + ghi chú
+            label_parts.append(f'<span style="color:#999;font-size:11px">{node} (đi qua)</span>')
+    route_label = ' → '.join(label_parts)
+
+    # Đếm số trạm thật sự sạc
+    n_charged = len(charged_cs)
+    sub_label = ('Không dừng sạc' if n_charged == 0
+                 else f'{n_charged} lần dừng sạc')
+
     m.get_root().html.add_child(folium.Element(f"""
     <div style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
                 background:white;padding:10px 22px;border-radius:10px;
                 box-shadow:0 2px 10px rgba(0,0,0,0.25);font-family:Arial;
                 z-index:1000;border-left:5px solid #00C853;
-                max-width:750px;white-space:nowrap;font-size:13px">
-        <b style="color:#1B5E20">Lo trinh MPC:</b>
-        <span style="color:#333"> {' → '.join(path_taken)}</span>
+                max-width:850px;white-space:nowrap;font-size:13px">
+        <b style="color:#1B5E20">Lộ trình MPC ({sub_label}):</b>
+        <span style="color:#333"> {route_label}</span>
     </div>"""))
 
     m.save('results/ev_routing_map.html')
@@ -1560,11 +2060,16 @@ if __name__ == "__main__":
         start_input    = p.get("start_node", "").strip()
         end_input      = p.get("end_node",   "").strip()
         soc_init       = float(p.get("soc_init", 1.0))
-        allow_charging = p.get("allow_charging", True)
+        allow_charging = bool(p.get("allow_charging", True))
         priority       = p.get("priority", "balanced")
+        max_soc_pct    = float(p.get("max_soc_pct", 92))
         vehicle_name   = p.get("vehicle", DEFAULT_VEHICLE)
-        set_vehicle(vehicle_name)
-        print(f"[UI] {start_input} -> {end_input} | SOC={soc_init}kWh | xe={vehicle_name}")
+        # [NEW] Tham số môi trường — mặc định Hà Nội mùa hè điển hình
+        ambient_temp   = float(p.get("ambient_temp", 28))
+        ac_on          = bool(p.get("ac_on", True))
+        n_passengers   = int(p.get("n_passengers", 1))
+        set_vehicle(vehicle_name, ambient_temp, ac_on, n_passengers)
+        print(f"[UI] {start_input} -> {end_input} | SOC={soc_init}kWh | xe={vehicle_name} | charge={allow_charging} | maxSOC={max_soc_pct:.0f}%")
     else:
         set_vehicle(DEFAULT_VEHICLE)
         print(f"\n  Mang luoi: {len(CHARGING_STATION_INFO)} tram sac thuc te tai Ha Noi")
@@ -1574,7 +2079,16 @@ if __name__ == "__main__":
         soc_input   = input("3. Muc pin (kWh)     (Enter = 1.0 kWh):      ").strip()
         soc_init    = float(soc_input) if soc_input else 1.0
         allow_charging = True
+        max_soc_pct = 92
         priority = "balanced"
+
+    # ── [SAFETY] SOC đầu vào là kWh tuyệt đối, nên phải nằm trong dung lượng xe hiện tại ──
+    if soc_init > SOC_MAX:
+        print(f"[WARN] SOC đầu vào {soc_init:.2f} kWh > dung lượng xe {SOC_MAX:.2f} kWh. Đã clamp về SOC_MAX.")
+        soc_init = SOC_MAX
+    if soc_init < 0:
+        print("[WARN] SOC đầu vào âm. Đã clamp về 0 kWh.")
+        soc_init = 0.0
 
     # --- Xử lý geocoding ---
     print("\n[1/4] Xu ly dia chi...")
@@ -1612,7 +2126,7 @@ if __name__ == "__main__":
           f"{len(all_nodes)*(len(all_nodes)-1)} canh can tai")
 
     # --- Build graph ---
-    print("\n[2/4] Xay dung do thi tu TomTom API...")
+    print("\n[2/4] Xay dung độ thi tu TomTom API...")
 
     # [FIX] Tăng từ 7km → 15km để không bỏ sót trạm sạc dọc hành trình
     # Đồng thời luôn nối Start và End với tất cả trạm sạc (bất kể khoảng cách)
@@ -1626,12 +2140,13 @@ if __name__ == "__main__":
 
     # --- Simulation ---
     print("\n[3/4] Mo phong MPC...")
-    path_taken, visited_cs, soc_history, speed_log, charge_times_sec = run_simulation(
+    path_taken, visited_cs, charged_cs, soc_history, speed_log, charge_times_sec = run_simulation(
         G, all_nodes, start_node, end_node, charging_stations, 
         soc_init, 
         priority=priority, 
         horizon=5,
-        max_soc_pct=92          # Mặc định 92% nếu chạy từ terminal
+        max_soc_pct=max_soc_pct,
+        allow_charging=allow_charging
     )
     # --- Output ---
     print("\n[4/4] Xuat ket qua...")
@@ -1639,7 +2154,8 @@ if __name__ == "__main__":
     export_summary(path_taken, soc_history, visited_cs, G, start_info, end_info, charge_times_sec)
     export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec)
     visualize(G, all_nodes, path_taken, visited_cs,
-              charging_stations, soc_history, start_node, end_node)
+              charging_stations, soc_history, start_node, end_node,
+              charged_cs=charged_cs)
 
     print("\n" + "=" * 62)
     print("  HOAN THANH!")
