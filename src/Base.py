@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 # ==========================================
 # TỰ ĐỘNG CÀI THƯ VIỆN (chạy lần đầu sẽ tự cài)
 # ==========================================
@@ -1295,12 +1295,11 @@ def find_best_charger(G, current, charging_stations, visited_cs, SOC):
         best = min(safe_stations, key=lambda x: x[2] - 0.01 * x[3])
         return best[0], best[1]
     
-    # 2. [CHẾ ĐỘ TUYỆT VỌNG] Không có trạm nào an toàn 100%
-    else:
-        # Chọn trạm ngốn ít pin nhất để "nhắm mắt lết tới", hy vọng phép màu!
-        desperate = min(reachable, key=lambda x: x[2])
-        print(f"  [CẢNH BÁO] Pin quá kiệt! Bật chế độ lết đến trạm gần nhất: {desperate[0]}")
-        return desperate[0], desperate[1]
+    # 2. Không có trạm nào có thể tiếp cận an toàn.
+    # Tuyệt đối không trả về một tuyến "lết tới" không khả thi, vì điều đó
+    # khiến mô phỏng trừ SOC xuống âm rồi vẫn ghi nhận hành trình hoàn thành.
+    print("  [INFEASIBLE] Không có trạm sạc nào nằm trong phạm vi pin hiện tại.")
+    return None, None
 
 def find_horizon_path(G, current, end_node, horizon, current_soc, 
                       charging_stations=None, visited_cs=None, 
@@ -1426,6 +1425,13 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
     charge_times_sec = []   # [FIX] Danh sách thời gian sạc (giây) mỗi lần dừng
     steps = 0
 
+    # Trạng thái kết thúc hành trình. Chỉ được đánh dấu hoàn thành khi
+    # current == end_node; việc vòng lặp dừng do hết pin/không có đường
+    # không được coi là hoàn thành.
+    trip_completed = False
+    failure_reason = ""
+    failure_node = None
+
     print(f"\n=== ROLLING HORIZON MPC START ===")
     print(f"Horizon: {horizon} bước | Ưu tiên: {priority.upper()}")
     level, icon, desc = soc_status(SOC)
@@ -1451,24 +1457,68 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
                 best_path = nx.dijkstra_path(G, current, end_node, weight='weight')
                 next_node = best_path[1]
             except (nx.NetworkXNoPath, nx.NodeNotFound):
-                print("  [ERROR] Không tìm thấy đường đi!")
+                failure_reason = "Không tìm thấy đường từ vị trí hiện tại tới điểm đến."
+                failure_node = current
+                print(f"  [INFEASIBLE] {failure_reason}")
                 break
 
-        # Kiểm tra an toàn pin trước khi di chuyển
+        # Kiểm tra an toàn pin TRƯỚC KHI di chuyển. Không cho phép trừ SOC
+        # xuống âm rồi mới phát hiện hết pin.
         energy_step = G[current][next_node]['energy']
-        if allow_charging and SOC < energy_step * 1.15:   # Buffer 15%
-            station, path_to_cs = find_best_charger(
-                G, current, charging_stations, visited_cs, SOC
-            )
-            if station:
-                next_node = path_to_cs[1]
-                print(f"  [SAFETY] Chuyển hướng đến trạm sạc: {station}")
+        delay_step = G[current][next_node].get('delay_sec', 0)
+        p_aux_now = P_aux_dynamic(
+            _vehicle_spec,
+            _vehicle_spec.get('_ambient_temp', 28),
+            _vehicle_spec.get('_ac_on', True),
+            _vehicle_spec.get('_n_passengers', 1),
+        )
+        traffic_buffer = (p_aux_now * delay_step) / 3.6e6
+        move_buffer = max(0.01, energy_step * 0.05) + traffic_buffer
 
-        # Di chuyển
-        energy_step = G[current][next_node]['energy']
+        if SOC < energy_step + move_buffer:
+            if allow_charging:
+                station, path_to_cs = find_best_charger(
+                    G, current, charging_stations, visited_cs, SOC
+                )
+                if station is not None and path_to_cs is not None and len(path_to_cs) >= 2:
+                    next_node = path_to_cs[1]
+                    energy_step = G[current][next_node]['energy']
+                    delay_step = G[current][next_node].get('delay_sec', 0)
+                    traffic_buffer = (p_aux_now * delay_step) / 3.6e6
+                    move_buffer = max(0.01, energy_step * 0.05) + traffic_buffer
+                    print(f"  [SAFETY] Chuyển hướng đến trạm sạc khả thi: {station}")
+                else:
+                    failure_reason = (
+                        f"Pin còn {SOC:.3f} kWh, không đủ tới điểm tiếp theo "
+                        f"và không có trạm sạc nào tiếp cận an toàn."
+                    )
+                    failure_node = current
+                    print(f"  [INFEASIBLE] {failure_reason}")
+                    break
+            else:
+                failure_reason = (
+                    f"Pin còn {SOC:.3f} kWh, cần ít nhất "
+                    f"{energy_step + move_buffer:.3f} kWh để đi tiếp; "
+                    "người dùng đã tắt tùy chọn dừng sạc."
+                )
+                failure_node = current
+                print(f"  [INFEASIBLE] {failure_reason}")
+                break
+
+        # Kiểm tra lần cuối sau khi có thể đã đổi hướng sang trạm sạc.
+        if SOC < energy_step + move_buffer:
+            failure_reason = (
+                f"Không đủ pin để đi từ {current} tới {next_node}: "
+                f"SOC={SOC:.3f} kWh, yêu cầu an toàn={energy_step + move_buffer:.3f} kWh."
+            )
+            failure_node = current
+            print(f"  [INFEASIBLE] {failure_reason}")
+            break
+
+        # Di chuyển chỉ khi cạnh tiếp theo khả thi.
         speed_log.append(G[current][next_node]['speed'])
         SOC -= energy_step
-        SOC  = min(SOC, SOC_MAX)
+        SOC = max(0.0, min(SOC, SOC_MAX))
 
         current = next_node
         path_taken.append(current)
@@ -1480,7 +1530,9 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
               f"{dist_step:5.1f}km | -{energy_step:.3f}kWh | SOC = {SOC:.2f} {icon}")
 
         if SOC <= 0:
-            print("  PIN HẾT!")
+            failure_reason = "Pin đã cạn trước khi tới điểm đến."
+            failure_node = current
+            print(f"  [INFEASIBLE] {failure_reason}")
             break
 
         # ==================== SAC PIN TAI TRAM ====================
@@ -1515,20 +1567,42 @@ def run_simulation(G, all_nodes, start_node, end_node, charging_stations,
             else:
                 print(f"  [SKIP] Di qua {current} (SOC = {SOC/SOC_MAX*100:.0f}% — {charge_reason})")
                 visited_cs.add(current)
-    print("\n=== HOÀN THÀNH ===")
-    # Phân biệt rõ "đi qua" vs "thực sự sạc"
+    # Chỉ hoàn thành khi node hiện tại thật sự là End.
+    trip_completed = (current == end_node and SOC > 0)
+    if not trip_completed and not failure_reason:
+        if steps >= MAX_STEPS:
+            failure_reason = f"Vượt quá giới hạn {MAX_STEPS} bước trước khi tới điểm đến."
+        else:
+            failure_reason = "Hành trình dừng trước khi tới điểm đến."
+        failure_node = current
+
     n_charged_print = len(charged_cs)
-    if n_charged_print == 0:
-        print(f"Lộ trình: {' → '.join(path_taken)}  (KHÔNG dừng sạc)")
+    if trip_completed:
+        print("\n=== HOÀN THÀNH HÀNH TRÌNH ===")
     else:
-        # Đánh dấu trạm sạc bằng ⚡
+        print("\n=== HÀNH TRÌNH KHÔNG HOÀN THÀNH ===")
+        print(f"Lý do: {failure_reason}")
+        print(f"Dừng tại: {failure_node or current} | SOC còn: {SOC:.3f} kWh")
+
+    # Phân biệt rõ "đi qua" vs "thực sự sạc"
+    if n_charged_print == 0:
+        print(f"Lộ trình thực tế: {' → '.join(path_taken)}  (KHÔNG dừng sạc)")
+    else:
         marked = [f"⚡{n}" if n in charged_cs else n for n in path_taken]
-        print(f"Lộ trình: {' → '.join(marked)}")
+        print(f"Lộ trình thực tế: {' → '.join(marked)}")
     print(f"Số bước: {steps} | Sạc thực: {n_charged_print} lần | "
           f"Đi qua (không sạc): {len(visited_cs) - n_charged_print} trạm")
 
-    # [FIX] Trả về 6 giá trị — thêm charged_cs để legend phân biệt
-    return path_taken, visited_cs, charged_cs, soc_history, speed_log, charge_times_sec
+    trip_result = {
+        "completed": trip_completed,
+        "status": "completed" if trip_completed else "infeasible",
+        "failure_reason": failure_reason,
+        "stopped_at": current,
+        "steps": steps,
+    }
+
+    return (path_taken, visited_cs, charged_cs, soc_history,
+            speed_log, charge_times_sec, trip_result)
 
 
 # ==========================================
@@ -1664,7 +1738,7 @@ def export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec):
           f"motor {vehicle_specs_for_mat['motor_kw']:.0f} kW, "
           f"pack {N_series}S × {vehicle_specs_for_mat['V_cell_nom']:.2f}Vnom / {vehicle_specs_for_mat['V_cell_full']:.2f}Vmax)")
 
-def print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec):
+def print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec, trip_result=None):
     pairs        = list(zip(path_taken, path_taken[1:]))
     total_dist   = sum(G[u][v]['dist']   for u, v in pairs)
     total_energy = sum(G[u][v]['energy'] for u, v in pairs)
@@ -1673,9 +1747,16 @@ def print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec):
     efficiency   = total_energy / total_dist * 100 if total_dist > 0 else 0
     actual_stops = len(charge_times_sec)
 
+    trip_result = trip_result or {"completed": path_taken[-1] == "End"}
+    completed = bool(trip_result.get("completed", False))
+
     print("\n" + "=" * 58)
-    print("  TOM TAT HANH TRINH")
+    print("  TOM TAT HANH TRINH" if completed else "  HANH TRINH KHONG HOAN THANH")
     print("=" * 58)
+    print(f"  Trang thai      : {'DA TOI DICH' if completed else 'KHONG KHA THI'}")
+    if not completed:
+        print(f"  Ly do           : {trip_result.get('failure_reason', 'Khong ro')}")
+        print(f"  Dung tai        : {trip_result.get('stopped_at', path_taken[-1])}")
     print(f"  Lo trinh       : {' -> '.join(path_taken)}")
     print(f"  Tong quang duong: {total_dist:.1f} km")
     print(f"  Tong thoi gian  : {total_time_h*60:.0f} phut ({total_time_h:.2f} gio)")
@@ -1690,20 +1771,45 @@ def print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec):
             print(f"      {info.get('brand','?')} | {info.get('power_kw','?')}kW | Sạc {actual_charge_min:.1f} phút")
     print("=" * 58)
 
-def export_summary(path_taken, soc_history, visited_cs, G, start_info, end_info, charge_times_sec):
+def export_summary(path_taken, soc_history, visited_cs, G, start_info, end_info, charge_times_sec, trip_result=None):
     pairs = list(zip(path_taken, path_taken[1:]))
     total_dist   = sum(G[u][v]['dist']   for u, v in pairs)
     total_energy = sum(G[u][v]['energy'] for u, v in pairs)
     total_time_h = sum(G[u][v]['time']   for u, v in pairs)
     total_charge_min = sum(charge_times_sec) / 60.0 if charge_times_sec else 0.0
 
-    # Tên xe hiện tại
-    current_vehicle = next(
-        (k for k, v in VEHICLE_SPECS.items() if v is _vehicle_spec),
-        DEFAULT_VEHICLE
+    # Tên xe hiện tại. _vehicle_spec là bản copy nên không dùng so sánh identity.
+    current_vehicle = _vehicle_spec.get("_vehicle_name", DEFAULT_VEHICLE)
+    trip_result = trip_result or {
+        "completed": path_taken[-1] == "End",
+        "status": "completed" if path_taken[-1] == "End" else "infeasible",
+        "failure_reason": "",
+        "stopped_at": path_taken[-1],
+    }
+
+    stopped_node = trip_result.get("stopped_at", path_taken[-1])
+    if stopped_node == "Start":
+        stopped_name = start_info["name"]
+    elif stopped_node == "End":
+        stopped_name = end_info["name"]
+    else:
+        stopped_name = CHARGING_STATION_INFO.get(stopped_node, {}).get("name", stopped_node)
+
+    trip_completed = bool(trip_result.get("completed", False))
+    status_message = (
+        "Hành trình đã hoàn thành và xe đã tới điểm đến."
+        if trip_completed
+        else "Hành trình dừng trước khi tới điểm đến."
     )
 
     summary = {
+        # Trạng thái hành trình — web app phải đọc trường này trước khi hiển thị thành công
+        "trip_completed":     trip_completed,
+        "trip_status":        trip_result.get("status", "infeasible"),
+        "status_message":     status_message,
+        "failure_reason":     trip_result.get("failure_reason", ""),
+        "stopped_at":         stopped_node,
+        "stopped_name":       stopped_name,
         # Thông tin hành trình
         "start_name":          start_info['name'],
         "end_name":            end_info['name'],
@@ -1900,26 +2006,53 @@ def visualize(G, all_nodes, path_taken, visited_cs,
         zoom_start=13
     )
 
+    def _safe_geometry(u, v, data=None):
+        """Folium không chấp nhận locations rỗng; luôn trả về ít nhất 2 điểm."""
+        data = data or {}
+        geom = data.get('geometry')
+        if geom and len(geom) >= 2:
+            return geom
+        return [all_nodes[u]['coord'], all_nodes[v]['coord']]
+
     # Tất cả cạnh (mờ)
     for u, v, data in G.edges(data=True):
-        geom = data.get('geometry', [all_nodes[u]['coord'], all_nodes[v]['coord']])
+        geom = _safe_geometry(u, v, data)
         folium.PolyLine(
             locations=geom, color='#90A4AE', weight=1.5, opacity=0.25,
             tooltip=f"{u}->{v} | {data['dist']}km | {data['energy']:.3f}kWh"
         ).add_to(m)
 
-    # Lộ trình thực tế
+    # Lộ trình thực tế. Nếu xe chưa đi được cạnh nào thì không tạo PolyLine rỗng.
     route_geom = []
     for u, v in zip(path_taken, path_taken[1:]):
-        route_geom.extend(
-            G[u][v].get('geometry', [all_nodes[u]['coord'], all_nodes[v]['coord']])
-        )
-    folium.PolyLine(locations=route_geom, color='#00C853',
-                    weight=6, opacity=0.92, tooltip="Lo trinh MPC").add_to(m)
+        segment = _safe_geometry(u, v, G[u][v])
+        if route_geom and route_geom[-1] == segment[0]:
+            route_geom.extend(segment[1:])
+        else:
+            route_geom.extend(segment)
+
+    if len(route_geom) >= 2:
+        folium.PolyLine(
+            locations=route_geom, color='#00C853',
+            weight=6, opacity=0.92, tooltip="Lo trinh MPC"
+        ).add_to(m)
+    elif path_taken:
+        # Trường hợp pin quá thấp: xe dừng ngay tại Start hoặc tại node cuối đã tới.
+        stopped_node = path_taken[-1]
+        stopped_coord = all_nodes[stopped_node]['coord']
+        folium.CircleMarker(
+            location=stopped_coord,
+            radius=10,
+            color='#D32F2F',
+            fill=True,
+            fill_color='#D32F2F',
+            fill_opacity=0.85,
+            tooltip=f"Xe dừng tại {stopped_node} — chưa hoàn thành hành trình"
+        ).add_to(m)
 
     # Số bước
     for i, (u, v) in enumerate(zip(path_taken, path_taken[1:]), 1):
-        geom = G[u][v].get('geometry', [all_nodes[u]['coord'], all_nodes[v]['coord']])
+        geom = _safe_geometry(u, v, G[u][v])
         mid  = geom[len(geom)//2]
         folium.Marker(location=mid, icon=folium.DivIcon(
             html=f'<div style="font-size:10px;font-weight:bold;color:#1B5E20;'
@@ -2140,26 +2273,42 @@ if __name__ == "__main__":
 
     # --- Simulation ---
     print("\n[3/4] Mo phong MPC...")
-    path_taken, visited_cs, charged_cs, soc_history, speed_log, charge_times_sec = run_simulation(
-        G, all_nodes, start_node, end_node, charging_stations, 
-        soc_init, 
-        priority=priority, 
+    (path_taken, visited_cs, charged_cs, soc_history, speed_log,
+     charge_times_sec, trip_result) = run_simulation(
+        G, all_nodes, start_node, end_node, charging_stations,
+        soc_init,
+        priority=priority,
         horizon=5,
         max_soc_pct=max_soc_pct,
         allow_charging=allow_charging
     )
+
     # --- Output ---
     print("\n[4/4] Xuat ket qua...")
-    print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec)
-    export_summary(path_taken, soc_history, visited_cs, G, start_info, end_info, charge_times_sec)
-    export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec)
+    print_summary(path_taken, soc_history, visited_cs, G, charge_times_sec, trip_result)
+    export_summary(
+        path_taken, soc_history, visited_cs, G, start_info, end_info,
+        charge_times_sec, trip_result
+    )
+
+    # Vẫn vẽ quãng đường thực tế đã đi để chẩn đoán, nhưng chỉ xuất DriveCycle
+    # hoàn chỉnh khi xe thật sự tới đích.
     visualize(G, all_nodes, path_taken, visited_cs,
               charging_stations, soc_history, start_node, end_node,
               charged_cs=charged_cs)
 
     print("\n" + "=" * 62)
-    print("  HOAN THANH!")
-    print("  - ev_routing_result.png")
-    print("  - ev_routing_map.html")
-    print("  - DriveCycle_Data.mat")
+    if trip_result["completed"]:
+        export_matlab(path_taken, soc_history, speed_log, G, charge_times_sec)
+        print("  HOAN THANH HANH TRINH!")
+        print("  - ev_routing_result.png")
+        print("  - ev_routing_map.html")
+        print("  - DriveCycle_Data.mat")
+    else:
+        print("  HANH TRINH KHONG KHA THI — KHONG XUAT DRIVE CYCLE HOAN CHINH")
+        print(f"  Ly do: {trip_result['failure_reason']}")
+        print("  - ev_routing_result.png (quang duong da di)")
+        print("  - ev_routing_map.html (quang duong da di)")
+        # Giữ exit code 0 để web app đọc summary.json và hiển thị lỗi nghiệp vụ,
+        # thay vì coi đây là lỗi crash của Python.
     print("=" * 62)
