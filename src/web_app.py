@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import subprocess
+import sys
 import os
 import json
 import time
@@ -355,6 +356,28 @@ def render_metric_card(label, value, note=""):
         unsafe_allow_html=True,
     )
 
+
+def resolve_stopped_name(summary):
+    """Đổi mã node nội bộ thành tên địa điểm dễ đọc trên giao diện."""
+    stopped_name = summary.get("stopped_name")
+    if stopped_name:
+        return stopped_name
+
+    stopped_at = summary.get("stopped_at", "Không xác định")
+    if stopped_at == "Start":
+        return summary.get("start_name", "Điểm xuất phát")
+    if stopped_at == "End":
+        return summary.get("end_name", "Điểm đến")
+    return stopped_at
+
+
+def compact_stderr(stderr_text, max_lines=12):
+    """Chỉ hiện phần cuối traceback để giao diện không bị ngập log."""
+    lines = [line for line in (stderr_text or "").splitlines() if line.strip()]
+    if not lines:
+        return "Không có thông tin lỗi chi tiết từ tiến trình mô phỏng."
+    return "\n".join(lines[-max_lines:])
+
 # ==========================================
 # SIDEBAR
 # ==========================================
@@ -542,7 +565,7 @@ if run_btn:
 
     try:
         proc = subprocess.Popen(
-            ["python", "src/Base.py"],
+            [sys.executable, "src/Base.py"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -567,19 +590,42 @@ if run_btn:
             log_container.code("\n".join(stdout_lines[-10:]), language="text")
 
         proc.wait()
+        stderr_text = proc.stderr.read()
+        latest_summary = load_summary()
 
         if proc.returncode != 0:
-            st.error("Mô phỏng gặp lỗi.")
-            with st.expander("Chi tiết lỗi"):
-                st.code(proc.stderr.read(), language="bash")
-            st.stop()
+            # Nếu Base.py đã tạo summary cho một hành trình không khả thi thì đây là
+            # lỗi nghiệp vụ, không phải lỗi crash của chương trình.
+            if latest_summary and not latest_summary.get("trip_completed", False):
+                progress_bar.progress(100, text="Đã kết thúc tính toán")
+            else:
+                progress_bar.empty()
+                st.error("Không thể hoàn tất phép tính do lỗi kỹ thuật.")
+                st.caption("Kiểm tra API, kết nối mạng hoặc thư viện Python rồi chạy lại.")
+                with st.expander("Chi tiết kỹ thuật"):
+                    st.code(compact_stderr(stderr_text), language="text")
+                st.stop()
 
     except Exception as e:
-        st.error(f"Lỗi thực thi: {e}")
+        progress_bar.empty()
+        st.error("Không thể khởi chạy tiến trình mô phỏng.")
+        with st.expander("Chi tiết kỹ thuật"):
+            st.code(str(e), language="text")
         st.stop()
 
-    progress_bar.progress(100, text="Hoàn tất")
-    st.success("Mô phỏng hoàn tất.")
+    progress_bar.progress(100, text="Đã kết thúc tính toán")
+    latest_summary = load_summary()
+    if latest_summary and latest_summary.get("trip_completed", False):
+        st.success("Đã tìm được hành trình khả thi và xe tới điểm đến.")
+    elif latest_summary:
+        stop_name = resolve_stopped_name(latest_summary)
+        final_soc = latest_summary.get("soc_final_kwh", 0.0)
+        st.warning(
+            f"Không thể hoàn thành hành trình. Xe dừng tại {stop_name}; "
+            f"pin còn {final_soc:.2f} kWh."
+        )
+    else:
+        st.error("Tính toán kết thúc nhưng không tạo được tệp kết quả summary.json.")
 
 # ==========================================
 # HIỂN THỊ KẾT QUẢ
@@ -587,16 +633,39 @@ if run_btn:
 summary = load_summary()
 
 if summary:
+    trip_completed = bool(summary.get("trip_completed", False))
+    failure_reason = summary.get("failure_reason", "")
+    stopped_at = summary.get("stopped_at", summary.get("route", ["?"])[-1])
+    stopped_name = resolve_stopped_name(summary)
+    final_soc_kwh = float(summary.get("soc_final_kwh", 0.0))
+
+    if not trip_completed:
+        st.markdown(
+            f"""
+            <div class="ev-panel" style="border-color:rgba(255,193,7,.55); margin-bottom:1rem;">
+                <div class="ev-section-title">⚠️ Hành trình dừng trước khi tới đích</div>
+                <strong>Vị trí dừng:</strong> {h(stopped_name)}<br>
+                <strong>Pin còn lại:</strong> {final_soc_kwh:.2f} kWh<br>
+                <strong>Nguyên nhân:</strong> {h(failure_reason or 'Không đủ pin hoặc không có trạm sạc khả thi trong phạm vi tiếp cận.')}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     drive_time   = summary.get('total_time_min', 0)
     charge_time  = summary.get('total_charge_min', 0)
     total_time   = drive_time + charge_time
     charge_note = f"Sạc {charge_time:.0f} phút" if charge_time > 0 else "Không cần dừng sạc"
 
+    route_target = summary.get('end_name', '?')
+    route_display_end = route_target if trip_completed else f"Dừng tại {stopped_name}"
+    status_pill = "ĐÃ TỚI ĐÍCH" if trip_completed else "DỪNG TRƯỚC ĐÍCH"
     st.markdown(
         f"""
         <div class="ev-route-card">
-            <div class="ev-route-main">{h(summary.get('start_name','?'))} <span style="color:#e82127;">→</span> {h(summary.get('end_name','?'))}</div>
+            <div class="ev-route-main">{h(summary.get('start_name','?'))} <span style="color:#e82127;">→</span> {h(route_display_end)}</div>
             <span class="ev-pill">{h(summary.get('vehicle', selected['name']))}</span>
+            <span class="ev-pill">{h(status_pill)}</span>
             <span class="ev-pill">{charge_note}</span>
             <span class="ev-pill">MPC / TomTom</span>
         </div>
@@ -606,7 +675,7 @@ if summary:
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        render_metric_card("Quãng đường", f"{summary.get('total_dist_km', 0):.1f} km", "Tuyến tối ưu")
+        render_metric_card("Quãng đường", f"{summary.get('total_dist_km', 0):.1f} km", "Đã đi" if not trip_completed else "Tuyến hoàn thành")
     with col2:
         render_metric_card("Tổng thời gian", f"{total_time:.0f} phút", f"Lái {drive_time:.0f} phút · {charge_note}")
     with col3:
@@ -617,7 +686,19 @@ if summary:
     tab_overview, tab_map, tab_sim, tab_export = st.tabs(["Tổng quan", "Bản đồ", "Mô phỏng", "Xuất dữ liệu"])
 
     with tab_overview:
-        if summary.get("n_charging_stops", 0) > 0:
+        if not trip_completed:
+            st.markdown(
+                f"""
+                <div class="ev-panel">
+                    <div class="ev-section-title">Hành trình không khả thi</div>
+                    Xe dừng tại <strong>{h(stopped_name)}</strong> trước khi tới đích, với
+                    <strong>{final_soc_kwh:.2f} kWh</strong> còn lại.<br>
+                    {h(failure_reason or 'Không đủ pin hoặc không có trạm sạc khả thi trong phạm vi tiếp cận.')}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        elif summary.get("n_charging_stops", 0) > 0:
             st.markdown(
                 f"""
                 <div class="ev-panel">
@@ -640,7 +721,7 @@ if summary:
             )
 
     with tab_map:
-        st.markdown('<div class="ev-section-title">Lộ trình tối ưu trên bản đồ</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ev-section-title">' + ('Lộ trình tối ưu trên bản đồ' if trip_completed else 'Quãng đường xe đã đi trước khi dừng') + '</div>', unsafe_allow_html=True)
         if os.path.exists("results/ev_routing_map.html"):
             with open("results/ev_routing_map.html", "r", encoding="utf-8") as f:
                 components.html(f.read(), height=680, scrolling=True)
@@ -648,7 +729,7 @@ if summary:
             st.warning("Không tìm thấy file bản đồ.")
 
     with tab_sim:
-        st.markdown('<div class="ev-section-title">Biểu đồ kết quả mô phỏng</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ev-section-title">' + ('Biểu đồ kết quả mô phỏng' if trip_completed else 'Biểu đồ trạng thái đến thời điểm hành trình dừng') + '</div>', unsafe_allow_html=True)
         if os.path.exists("results/ev_routing_result.png"):
             st.image("results/ev_routing_result.png", width="stretch")
         else:
@@ -659,7 +740,7 @@ if summary:
             """
             <div class="ev-download-panel">
                 <div class="ev-section-title">Tải xuống dữ liệu mô phỏng</div>
-                Sử dụng file .mat để đưa chu trình lái, bao gồm cả thời gian dừng sạc, vào MATLAB/Simulink.
+                {"Sử dụng file .mat để đưa chu trình lái, bao gồm cả thời gian dừng sạc, vào MATLAB/Simulink." if trip_completed else "Hành trình chưa hoàn thành nên hệ thống không xuất Drive Cycle .mat hoàn chỉnh. Báo cáo JSON vẫn được giữ để chẩn đoán."}
             </div>
             """,
             unsafe_allow_html=True,
